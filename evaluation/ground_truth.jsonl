@@ -1,0 +1,3 @@
+{"query": "How deep did we dig the drainage ditch in November 2022 at Las Cruces City College?", "expected_answer": "3.5 feet", "expected_sources": ["drainage", "excavation", "november"]}
+{"query": "Who was the contractor for subgrade compaction in Project X?", "expected_answer": "ABC Construction", "expected_sources": ["contractor", "subgrade", "compaction"]}
+{"query": "What was the specified pipe diameter for drainage at Area B?", "expected_answer": "12 inches", "expected_sources": ["pipe", "diameter", "drainage", "area_b"]}

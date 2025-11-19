@@ -1,0 +1,54 @@
+# Project Library
+
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (large files)
+data/raw_docs/
+data/ocr/
+data/text/
+data/chunks/
+data/embeddings/
+data/index/
+data/models/*.gguf
+data/logs/
+
+# Keep directory structure
+!data/.gitkeep
+!data/raw_docs/.gitkeep
+!data/models/.gitkeep
+
+# Frontend
+node_modules/
+dist/
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+evaluation_results.json
+
+# Environment
+.env
+*.local

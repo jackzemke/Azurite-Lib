@@ -1,0 +1,38 @@
+model:
+  path: "/home/jack/lib/project-library/data/models/Llama-3.2-3B-Instruct-Q6_K.gguf"
+  n_gpu_layers: 40
+  n_threads: 8
+  max_tokens: 512
+  temperature: 0.0
+
+embedding:
+  model_name: "all-MiniLM-L6-v2"
+  batch_size: 32
+
+paths:
+  raw_docs: "/home/jack/lib/project-library/data/raw_docs"
+  ocr: "/home/jack/lib/project-library/data/ocr"
+  text: "/home/jack/lib/project-library/data/text"
+  chunks: "/home/jack/lib/project-library/data/chunks"
+  embeddings: "/home/jack/lib/project-library/data/embeddings"
+  chroma_db: "/home/jack/lib/project-library/data/index/chroma"
+
+logging:
+  queries_log: "/home/jack/lib/project-library/data/logs/queries.log"
+  ingest_report: "/home/jack/lib/project-library/data/logs/ingest_report.json"
+  errors_log: "/home/jack/lib/project-library/data/logs/errors.log"
+  debug_mode: false
+
+ocr:
+  use_tesseract: true
+  tesseract_lang: "eng"
+  min_text_length: 100  # If extracted text < this, trigger OCR
+
+chunking:
+  semantic: true
+  chunk_size_tokens: 500
+  chunk_overlap_tokens: 100
+
+index:
+  top_k: 6
+  similarity_threshold: 0.5
