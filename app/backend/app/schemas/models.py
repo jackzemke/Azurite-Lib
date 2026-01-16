@@ -43,8 +43,10 @@ class Citation(BaseModel):
 class QueryRequest(BaseModel):
     """Request for Q&A query."""
     project_ids: Optional[List[str]] = Field(None, description="List of project IDs to search (empty/null = all projects)")
+    employee_id: Optional[str] = Field(None, description="Employee ID to filter projects (overrides project_ids if provided)")
     query: str = Field(..., min_length=3, max_length=1000)
-    k: int = Field(6, ge=1, le=20, description="Number of chunks to retrieve")
+    k: int = Field(10, ge=1, le=20, description="Number of chunks to retrieve")
+    chat_history: List[dict] = Field(default_factory=list, description="Previous Q&A pairs: [{'query': '...', 'answer': '...'}]")
 
 
 class QueryResponse(BaseModel):

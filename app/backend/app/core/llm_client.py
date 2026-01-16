@@ -50,15 +50,18 @@ class LLMClient:
     def _load_model(self):
         """Load LLM model."""
         try:
+            n_gpu = self.config["model"]["n_gpu_layers"]
             logger.info(f"Loading LLM model: {self.model_path}")
+            logger.info(f"GPU layers: {n_gpu}, Threads: {self.config['model']['n_threads']}")
             self.llm = Llama(
                 model_path=str(self.model_path),
-                n_gpu_layers=self.config["model"]["n_gpu_layers"],
+                n_gpu_layers=n_gpu,
                 n_threads=self.config["model"]["n_threads"],
+                n_ctx=4096,  # Context window
                 seed=42,  # Deterministic for testing
-                verbose=False,
+                verbose=False,  # Disable verbose output (all those control token warnings)
             )
-            logger.info("LLM model loaded successfully")
+            logger.info(f"✓ LLM model loaded with {n_gpu} GPU layers (context: 4096 tokens)")
 
         except Exception as e:
             logger.error(f"Failed to load LLM model: {e}")
@@ -90,16 +93,27 @@ class LLMClient:
         temperature = temperature if temperature is not None else self.config["model"]["temperature"]
 
         try:
+            # Use Llama-3.2 instruct format (model auto-adds <|begin_of_text|>)
+            formatted_prompt = f"""<|start_header_id|>system<|end_header_id|>
+
+You are a helpful assistant that outputs valid JSON only. Do not include explanations or markdown.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+"""
+            
             response = self.llm(
-                prompt,
+                formatted_prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=0.95,
-                stop=["</s>", "USER:", "SYSTEM:"],
+                stop=["<|eot_id|>", "<|end_of_text|>"],
                 echo=False,
             )
 
-            return response["choices"][0]["text"]
+            result_text = response["choices"][0]["text"].strip()
+            logger.debug(f"LLM raw output (first 300 chars): {result_text[:300]}")
+            return result_text
 
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
@@ -118,32 +132,54 @@ class LLMClient:
             max_tokens: Max tokens to generate
 
         Returns:
-            Parsed JSON dict
+            Parsed JSON dict (never returns None or non-dict)
         """
         text = self.generate(prompt, max_tokens=max_tokens, temperature=0.0)
+        
+        # Ensure text is a string
+        if not isinstance(text, str):
+            logger.error(f"generate() returned non-string: {type(text)}, value: {text}")
+            return self._stub_json_response()
 
         # Try to extract JSON from response
+        json_str = None
         try:
             # Find JSON block (between { and })
             start = text.find('{')
             end = text.rfind('}')
 
             if start == -1 or end == -1:
-                logger.error(f"No JSON found in LLM response: {text[:200]}")
+                logger.error(f"No JSON block found in LLM response. Full text: {text[:500]}")
+                logger.error("LLM may not be following JSON format instructions. Falling back to stub.")
                 return self._stub_json_response()
 
             json_str = text[start:end+1]
-            return json.loads(json_str)
+            logger.debug(f"Extracted JSON string (first 200 chars): {json_str[:200]}")
+            
+            parsed = json.loads(json_str)
+            logger.debug(f"JSON parsed successfully: type={type(parsed)}")
+            
+            # Ensure parsed is a dict
+            if not isinstance(parsed, dict):
+                logger.error(f"Parsed JSON is not a dict: {type(parsed)}, value: {parsed}")
+                return self._stub_json_response()
+            
+            logger.debug(f"Successfully parsed LLM JSON: {parsed.get('answer', '')[:100]}...")
+            return parsed
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from LLM: {e}")
-            logger.error(f"Response text: {text[:500]}")
+            logger.error(f"JSON decode error: {e}")
+            logger.error(f"JSON string attempted: {json_str[:500] if json_str else 'N/A'}")
+            logger.error(f"Full response text (first 1000 chars): {text[:1000]}")
+            return self._stub_json_response()
+        except Exception as e:
+            logger.error(f"Unexpected error in generate_json: {type(e).__name__}: {e}")
             return self._stub_json_response()
 
     def _stub_response(self, prompt: str) -> str:
         """Return deterministic stub response."""
         logger.debug("Returning stub response")
-        return '{"answer": "Not found in indexed documents", "citations": [], "confidence": "low"}'
+        return json.dumps({"answer": "Not found in indexed documents", "citations": [], "confidence": "low"})
 
     def _stub_json_response(self) -> Dict:
         """Return deterministic stub JSON response."""

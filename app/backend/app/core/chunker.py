@@ -6,6 +6,7 @@ with fallback to fixed-window chunking.
 """
 
 import re
+import hashlib
 from typing import List, Dict
 from pathlib import Path
 import logging
@@ -78,7 +79,9 @@ class Chunker:
 
                 for chunk_text in section_chunks:
                     chunk_counter += 1
-                    chunk_id = f"{project_id}_{file_basename}_p{page_num}_c{chunk_counter:04d}"
+                    # Create unique ID using hash of full file path to avoid collisions
+                    path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+                    chunk_id = f"{project_id}_{path_hash}_{file_basename}_p{page_num}_c{chunk_counter:04d}"
 
                     token_count = self._count_tokens(chunk_text)
 

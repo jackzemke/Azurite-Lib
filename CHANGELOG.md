@@ -2,6 +2,82 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-01-16
+
+### Rebranding
+- **Renamed from "ProjectMind" to "Azurite Archive Assistant (AAA)"**
+- New branding throughout frontend with 💎 icon
+- Updated page title and favicon
+
+### Added
+
+#### Frontend - User Experience Overhaul
+- **Welcome Modal** - First-time user onboarding with dismissible popup
+  - Shows tips for best results and example queries
+  - "Don't show again" option with localStorage persistence
+  - Help button (?) in header to re-open anytime
+- **Redesigned Upload Flow** - Zero-input document ingestion
+  - Single-click folder selection (directory upload only)
+  - Auto-detects project name from folder
+  - Extracts project IDs from folder names (e.g., "(1430152)")
+  - Combined upload + ingest in one seamless flow
+  - Animated progress indicators for upload and processing stages
+  - Clear success/error feedback with actionable next steps
+- **Improved Empty State** - Example queries and onboarding tips
+- **Chat Interface Improvements**
+  - Multi-stage loading indicators (embedding → searching → processing → synthesizing)
+  - Enhanced citation display with project badges
+
+#### Backend - Q&A Quality Improvements
+- **MMR Diversity Retrieval** - Maximal Marginal Relevance for diverse citations
+- **Citation Deduplication** - No more repeated sources in answers
+- **Intent-Aware Query Expansion** - Better understanding of user questions
+- **Enhanced QA Prompt** - Improved SMA company context and answer formatting
+- **Disabled ChromaDB Telemetry** - Cleaner logs, no external calls
+- **Reduced LLM Verbosity** - Set `verbose=False` for cleaner output
+
+#### Backend - Project ID Mapping Infrastructure
+- **ProjectMapper** (`project_mapper.py`) - CSV-based ProjectKey ↔ FileID lookups
+- **FileSystemProjectScanner** (`filesystem_scanner.py`) - Scans raw_docs for project folders
+- **UnifiedProjectResolver** (`project_resolver.py`) - Combines all data sources
+  - Resolves Ajera employee IDs → file system folders
+  - Maps project keys to folder names for ChromaDB filtering
+  - Supports employee-scoped queries
+
+#### Backend - Enhanced Ingestion Pipeline
+- **DocumentValidator** (`document_validator.py`) - Pre/post-extraction quality control
+  - Quality classification: HIGH/MEDIUM/LOW/SKIP
+  - Duplicate detection via content hashing
+  - File validation (size limits, corruption detection)
+- **EnhancedChunker** (`enhanced_chunker.py`) - Context-preserving chunking
+  - Document type detection from filename
+  - Context prefixes on chunks (document title, section, type)
+  - Sentence-aware splitting
+- **ingest_v2 Endpoint** - Full validation pipeline with detailed reports
+  - `GET /projects/{id}/index/stats` - View indexing statistics
+  - `DELETE /projects/{id}/index` - Clear project from ChromaDB
+
+#### Data
+- Added `data/mappings/project_lookup.csv` - 1,694 projects with ProjectKey, FileID, Description
+
+### Changed
+- Query endpoint now uses UnifiedProjectResolver for employee filtering
+- Indexer metadata schema extended: file_id, project_key, document_title, section_header
+- Upload endpoint accepts folder names as project IDs (URL-encoded)
+
+### Fixed
+- `.get()` error on string citations - Added defensive type checking
+- ChromaDB telemetry errors causing log spam
+- LLM verbose logging causing excessive output
+- Same-document citation repetition
+
+### Technical Debt Addressed
+- Modular project ID resolution (no more hardcoded mappings)
+- Separation of concerns: validation, chunking, indexing
+- Graceful degradation when data sources unavailable
+
+---
+
 ## [0.1.0] - 2025-11-14
 
 ### Added

@@ -9,6 +9,10 @@ from chromadb.config import Settings
 from typing import List, Dict, Optional
 from pathlib import Path
 import logging
+import os
+
+# Disable ChromaDB telemetry to avoid posthog errors
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +34,12 @@ class Indexer:
         # Ensure DB directory exists
         self.chroma_db_path.mkdir(parents=True, exist_ok=True)
 
-        # Initialize persistent client
+        # Initialize persistent client with telemetry disabled
         logger.info(f"Initializing ChromaDB at {chroma_db_path}")
-        self.client = chromadb.PersistentClient(path=str(chroma_db_path))
+        self.client = chromadb.PersistentClient(
+            path=str(chroma_db_path),
+            settings=Settings(anonymized_telemetry=False)
+        )
 
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
@@ -62,12 +69,26 @@ class Indexer:
         documents = [chunk["text"] for chunk in chunks]
         metadatas = [
             {
-                "project_id": chunk["project_id"],
+                # Core identifiers (for filtering)
+                "project_id": chunk["project_id"],           # Folder name - main filter key
+                "file_id": chunk.get("file_id") or "",       # File system ID (e.g., "1430152")
+                "project_key": chunk.get("project_key") or "", # Ajera key (e.g., "125259")
+                
+                # File information
                 "file_path": chunk["file_path"],
                 "file_basename": chunk["file_basename"],
                 "page_number": chunk["page_number"],
-                "doc_type": chunk["doc_type"],
+                "doc_type": chunk.get("doc_type", "document"),
+                
+                # Content metadata
                 "tokens": chunk["tokens"],
+                "document_title": chunk.get("document_title") or "",
+                "section_header": chunk.get("section_header") or "",
+                
+                # Quality indicators
+                "ocr_confidence": chunk.get("ocr_confidence", 0.0),
+                
+                # Timestamps
                 "created_at": chunk["created_at"],
             }
             for chunk in chunks
@@ -90,14 +111,18 @@ class Indexer:
         query_embedding: List[float],
         project_ids: Optional[List[str]] = None,
         top_k: int = 6,
+        diversity: bool = True,
+        max_per_document: int = 2,
     ) -> List[Dict]:
         """
-        Query Chroma for similar chunks.
+        Query Chroma for similar chunks with optional diversity enforcement.
 
         Args:
             query_embedding: Query vector
             project_ids: Filter by list of project IDs (optional, None = all projects)
             top_k: Number of results to return
+            diversity: If True, enforce document diversity (limit chunks per document)
+            max_per_document: Max chunks from same document when diversity=True
 
         Returns:
             List of dicts with chunk_id, text, metadata, distance
@@ -108,15 +133,19 @@ class Indexer:
             # ChromaDB supports $in operator for multiple values
             where = {"project_id": {"$in": project_ids}}
 
+        # Fetch more candidates if diversity is enabled
+        fetch_k = top_k * 3 if diversity else top_k
+
         # Query Chroma
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k,
+            n_results=fetch_k,
             where=where,
+            include=["documents", "metadatas", "distances"]
         )
 
         # Parse results
-        chunks = []
+        all_chunks = []
         if results["ids"] and len(results["ids"]) > 0:
             for i in range(len(results["ids"][0])):
                 chunk = {
@@ -125,9 +154,61 @@ class Indexer:
                     "metadata": results["metadatas"][0][i],
                     "distance": results["distances"][0][i] if "distances" in results else None,
                 }
-                chunks.append(chunk)
+                all_chunks.append(chunk)
 
-        return chunks
+        # Apply diversity filtering if enabled
+        if diversity and len(all_chunks) > top_k:
+            all_chunks = self._apply_diversity(all_chunks, top_k, max_per_document)
+        else:
+            all_chunks = all_chunks[:top_k]
+
+        return all_chunks
+
+    def _apply_diversity(
+        self,
+        chunks: List[Dict],
+        top_k: int,
+        max_per_document: int
+    ) -> List[Dict]:
+        """
+        Apply MMR-style diversity to chunk results.
+        
+        Ensures we don't return too many chunks from the same document,
+        while still prioritizing relevance (lower distance = better).
+        
+        Args:
+            chunks: List of chunks sorted by relevance
+            top_k: Target number of results
+            max_per_document: Max chunks per document
+            
+        Returns:
+            Diverse subset of chunks
+        """
+        selected = []
+        doc_counts = {}  # file_path -> count
+        
+        for chunk in chunks:
+            if len(selected) >= top_k:
+                break
+                
+            file_path = chunk["metadata"].get("file_path", "unknown")
+            current_count = doc_counts.get(file_path, 0)
+            
+            if current_count < max_per_document:
+                selected.append(chunk)
+                doc_counts[file_path] = current_count + 1
+        
+        # If we haven't filled top_k yet, add remaining chunks
+        # (better to have duplicates than too few results)
+        if len(selected) < top_k:
+            for chunk in chunks:
+                if chunk not in selected:
+                    selected.append(chunk)
+                    if len(selected) >= top_k:
+                        break
+        
+        logger.debug(f"Diversity filter: {len(chunks)} candidates -> {len(selected)} selected from {len(doc_counts)} documents")
+        return selected
 
     def get_chunk(self, chunk_id: str) -> Optional[Dict]:
         """

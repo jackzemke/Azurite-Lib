@@ -29,10 +29,22 @@ ocr:
   min_text_length: 100  # If extracted text < this, trigger OCR
 
 chunking:
-  semantic: true
+  semantic: false  # Disabled - was creating tiny header-only chunks. Use fixed-window instead.
   chunk_size_tokens: 500
   chunk_overlap_tokens: 100
 
 index:
   top_k: 6
   similarity_threshold: 0.5
+
+database:
+  # HDP (Hybrid Data Pipeline) connection via ODBC DSN
+  dsn: "Ajera"  # The DSN you created in ODBC Administrator
+  username: "04864.DRodriguez.prd"
+  password: "auQdQ#OV0BN0"          # Your HDP password
+  
+  # Alternative: Direct connection (uncomment if not using DSN)
+  # driver: "HPD ODBC Driver"
+  # service: "https://your-hdp-endpoint.com"
+  # port: 443
+  # source: "your_hdp_datasource_name"
