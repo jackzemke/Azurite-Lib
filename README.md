@@ -1,343 +1,255 @@
-# Peter's Drop-In Dossier — Monorepo MVP
+# Azurite Archive Assistant (AAA)
 
-A local-first, citation-aware document Q&A system for engineering project documentation.
+A cite-first, retrieval-augmented knowledge system for engineering and construction projects. AAA makes past work instantly discoverable via natural language, with strict provenance on every answer and safe logging practices. Built for accuracy, privacy, and operational reliability.
+
+- Backend: FastAPI (Python 3.10+) + `llama-cpp-python` for local inference
+- Frontend: React + TypeScript + Vite
+- Vector DB: ChromaDB (embedded, persistent)
+- LLM: Llama-3.2-3B-Instruct (Q6_K, GGUF), optimized for RTX 4090; deterministic temperature=0.0
+- Embeddings: `sentence-transformers` all-MiniLM-L6-v2 (384-d)
+- ERP Integration: Ajera (SQL Server via `pyodbc`) for user-scoped project filtering
+
+## Why AAA
+- Citation-first answers: Always returns document evidence `(project_id, file_path, page, chunk_id)`
+- User-scoped search: Respects employee project history to reduce noise and leakage
+- Semantic-first chunking: Engineering docs are structured; AAA splits by headings before windowing
+- Stub-mode reliability: Gracefully degrades when local model is unavailable (CI/CD friendly)
+- Privacy by design: Logs metadata only; never logs raw document text
+
+## Table of Contents
+- Overview
+- Architecture
+- Features
+- Data Flow
+- Project Structure
+- Setup
+- Configuration
+- Development
+- Running
+- Ingestion Workflows
+- Querying the System
+- Frontend UI
+- Testing & Validation
+- Troubleshooting
+- Security & Privacy
+- Acceptance Criteria
+- Roadmap
 
 ## Overview
+AAA eliminates tribal knowledge barriers by making prior project documents searchable with grounded citations, combining structured ERP context with unstructured content.
 
-This system ingests mixed project documents (PDFs, Word docs, Excel, images), performs OCR where needed, chunks and indexes content with embeddings, and provides a Q&A interface powered by a local LLM that **always returns citations** (file, page, chunk).
+Primary use cases:
+- Engineers: e.g., "What was the pipe burial depth on Las Cruces Community Center?"
+- Marketing/BD: e.g., "Show Transit Authority projects from the last 3 years with similar scope"
+- Fallback: If docs aren’t indexed, return project IDs and database locations to guide users
 
-**Key Features:**
-- Multi-format document ingestion (PDF, DOCX, XLSX, images)
-- OCR for scanned documents
-- Semantic chunking with fallback
-- Local LLM (Llama-3.2-3B) via llama-cpp-python
-- Citation-first Q&A (never hallucinate without source)
-- React frontend with PDF viewer and citation highlighting
-- Persistent Chroma vector DB
-- RTX 4090 optimized
+## Architecture
+- Backend (`FastAPI`): Ingestion, embedding, indexing, and query orchestration
+- Vector Index (`ChromaDB`): Persistent local ANN index (HNSW) with project/employee metadata
+- LLM (`llama-cpp-python`): Strict JSON outputs, deterministic with temperature 0.0
+- Embeddings (`sentence-transformers`): Compact sentence vectors for fast similarity search
+- ERP Integration (Ajera): User-scoped filtering (employee→projects) for safer, more relevant results
+- Frontend (React + Vite): Search and Upload experiences with a professional UX and progress feedback
 
-## Prerequisites
+## Features
+- Citation provenance triple: `(project_id, file_path, page, chunk_id)` with every answer
+- Hybrid retrieval: Structured filters (projects) + semantic search over document chunks
+- Semantic-first chunking with fallback windowing (500 tokens, 100 overlap)
+- OCR trigger: If extracted text length < `ocr.min_text_length` (default 100), Tesseract OCR is run
+- Stub mode: Deterministic test responses when model file is missing
+- Security-first logging: Metadata-only; no raw document text is logged
+- Upload + ingest: Directory-based uploads, auto-detect project ID from folder name
+- Rebranded frontend: Azurite Archive Assistant (AAA) with onboarding modal and improved UX
 
+## Data Flow
+- Ingestion: Upload → Extract → Normalize → Chunk → Embed → Index (with metadata)
+- Query: User context → Filter projects → Semantic search → LLM synthesis → Citations
+- Fallback: No docs found → Return Ajera project IDs + database locations
+
+## Project Structure
+```
+app/
+   backend/
+      app/
+         api/            # FastAPI routers (upload, ingest, query, health)
+         core/           # Extractors, chunker, embedder, indexer, llm_client
+         prompts/        # Prompt templates (strict JSON for QA)
+         schemas/        # Pydantic models
+      config.yaml       # Absolute paths and runtime config
+      requirements.txt
+   frontend/
+      src/              # React + Vite UI
+      package.json
+scripts/              # CLI tools for ingestion and evaluation
+data/
+   raw_docs/{project_id}/
+   chunks/{project_id}/
+   embeddings/
+   index/chroma/
+   models/            # GGUF models (not in git)
+   logs/
+```
+
+## Setup
+### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- CUDA 11.8+ / RTX 4090 (or CPU fallback)
-- Docker + NVIDIA Container Toolkit (for GPU in Docker)
-- Tesseract OCR: `sudo apt install tesseract-ocr`
+- Tesseract OCR (`tesseract` command on PATH)
+- NVIDIA GPU recommended (RTX 4090), CPU works with reduced performance
 
-## Quick Start (Local Dev)
-
-### 1. Prepare Environment
-
-```bash
-# Clone or navigate to repo
-cd /home/jack/lib/project-library
-
-# Create Python virtual environment
-python3 -m venv .venv
+### Create Python environment
+```
+python -m venv .venv
 source .venv/bin/activate
-
-# Install backend dependencies
 pip install -r app/backend/requirements.txt
+```
 
-# Install frontend dependencies
+### Install frontend dependencies
+```
 cd app/frontend
 npm install
-cd ../..
 ```
 
-### 2. Place Model File
-
-Download or copy `Llama-3.2-3B-Instruct-Q6_K.gguf` to:
+### Download the model (optional for stub mode)
+- Model file path: `data/models/Llama-3.2-3B-Instruct-Q6_K.gguf`
+- If missing, AAA runs in stub mode and returns deterministic test responses
 ```
-/home/jack/lib/project-library/data/models/Llama-3.2-3B-Instruct-Q6_K.gguf
+bash scripts/download_model.sh
 ```
 
-If model is absent, the system runs in **stub mode** (deterministic test responses).
+## Configuration
+- All paths in `app/backend/config.yaml` are absolute; update when deploying to new hosts
+- Key settings:
+   - `model.path`: Absolute path to the GGUF model file
+   - `model.n_gpu_layers`: Set to 0 if GPU is unavailable
+   - `index.path`: Persistent Chroma index location (absolute)
+   - `ocr.min_text_length`: Threshold to trigger OCR in PDFs
+   - `logging.*`: Ensure metadata-only logging (no raw text)
 
-### 3. Start Backend
-
-```bash
+## Development
+### Backend (FastAPI)
+```
 source .venv/bin/activate
 cd app/backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Backend runs at: `http://127.0.0.1:8000`
-API docs at: `http://127.0.0.1:8000/docs`
-
-### 4. Start Frontend
-
-```bash
+### Frontend (Vite)
+```
 cd app/frontend
-npm run dev
+npm run dev  # http://localhost:5173
 ```
 
-Frontend runs at: `http://localhost:5173` (Vite default)
+### Environment variables
+- `VITE_API_URL=http://localhost:8000` for the frontend to reach the backend
+- Configure in `app/frontend/.env` or your shell environment
 
-## Docker Compose (with GPU)
-
-```bash
+## Running
+### Docker Compose (with GPU)
+```
 docker-compose up --build
+# Tail backend logs
+docker-compose logs -f backend
+```
+- If GPU is unavailable, set `model.n_gpu_layers: 0` in `config.yaml`
+
+### Quickstart
+```
+# 1) Start backend and frontend (two terminals)
+source .venv/bin/activate && cd app/backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+cd app/frontend && npm run dev
+
+# 2) Load sample data
+bash scripts/load_sample_data.sh
+
+# 3) Ingest documents (demo)
+python scripts/ingest_cli.py --project demo_project
+
+# 4) Query via CLI
+python scripts/debug_query.py --query "pipe diameter" --project demo_project
 ```
 
-**Note:** Requires NVIDIA Container Toolkit installed on host.
-See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+## Ingestion Workflows
+### Upload
+- Directory upload is supported; AAA auto-detects `project_id` from folder name
+- Files are persisted under `data/raw_docs/{project_id}/` with subdirectory structure preserved
 
-## Usage
-
-### Upload Documents
-
-1. Navigate to Upload page
-2. Select project ID (e.g., `proj_demo`)
-3. Upload files (PDF, DOCX, XLSX, images)
-
-### Ingest Documents
-
-```bash
-# Via API
-curl -X POST http://127.0.0.1:8000/api/v1/projects/proj_demo/ingest
-
-# Via CLI
-python app/scripts/ingest_cli.py --project proj_demo
+### Ingest (v2)
+- Enhanced pipeline with validation, semantic chunking, embeddings, indexing, and detailed reports
+- Indexer stores metadata required for citation provenance
+```
+python scripts/ingest_cli.py --project <project_id>
 ```
 
-Check ingestion report at: `/data/logs/ingest_report_proj_demo.json`
+### Ingestion reports
+- Stored under `data/logs/ingest_report_{project_id}.json`
+- Includes document counts, errors, duplicates, and chunk statistics
 
-### Query Documents
+## Querying the System
+### User-scoped queries
+- Provide `employee_id` to filter results to that employee’s project history (Ajera integration)
+- If no documents match, AAA returns project metadata from Ajera as a fallback
 
-```bash
-# Via API
-curl -X POST http://127.0.0.1:8000/api/v1/query \
-  -H "Content-Type: application/json" \
-  -d '{"project_id":"proj_demo","query":"What was the pipe diameter?","k":6}'
+### API endpoints
+- `GET /api/v1/health` — server readiness and stub-mode status
+- `POST /api/v1/projects/{project_id}/upload` — upload project documents (directory-aware)
+- `POST /api/v1/ingest` — run ingestion for a given `project_id`
+- `POST /api/v1/query` — RAG query; returns `answer`, `citations`, `confidence`, and `stub_mode`
 
-# Via Frontend
-# Navigate to Search page, enter query, view answer + citations
+### Citations
+- Mandatory provenance triple: `(project_id, file_path, page, chunk_id)` per result
+- The prompt enforces strict JSON output and Pydantic validation on the backend
+
+## Frontend UI
+- Rebranded to Azurite Archive Assistant (AAA); gradient purple/indigo theme
+- Welcome modal with tips and a help button to reopen
+- SearchPage: Intent-aware empty state with example queries; viewport-filling layout
+- UploadPage: Simplified zero-input directory selection, robust progress feedback (bytes, files, elapsed, ETA, staged processing), and clear success/error states
+
+## Testing & Validation
 ```
-
-### View Citation
-
-Click a citation in the UI to open the PDF viewer at the specific page with highlighted text.
-
-## Project Structure
-
-```
-project-library/
-├─ app/
-│  ├─ backend/          # FastAPI backend
-│  ├─ frontend/         # React frontend
-│  └─ scripts/          # CLI tools
-├─ data/                # Data persistence
-│  ├─ raw_docs/         # Uploaded documents by project
-│  ├─ chunks/           # Chunked JSON files
-│  ├─ index/chroma/     # Chroma vector DB
-│  ├─ models/           # LLM model files
-│  └─ logs/             # Query and ingestion logs
-├─ evaluation/          # Ground truth and metrics
-└─ tests/               # Unit and integration tests
-```
-
-## Testing
-
-```bash
-# Run all tests
+# All tests
 pytest -v
 
-# Run specific test
+# Unit tests for chunker
 pytest tests/test_chunker.py -v
 
-# Run with coverage
-pytest --cov=app.backend.core --cov-report=html
+# FastAPI query integration tests
+pytest tests/test_query_endpoint.py -v
+
+# Coverage (backend core)
+pytest --cov=app.backend.core
 ```
-
-## Evaluation
-
-```bash
-python evaluation/eval_metrics.py --project proj_demo
-```
-
-Compares API responses against `evaluation/ground_truth.jsonl`.
-
-## Demo Script (for Execs)
-
-See section at bottom for full demo walkthrough.
-
-## Configuration
-
-Edit `app/backend/config.yaml` to adjust:
-- Model parameters (GPU layers, threads, temperature)
-- Chunking strategy (semantic vs fixed, sizes)
-- OCR settings (Tesseract language)
-- Paths
-
-## Acceptance Criteria Status
-
-- [x] Ingests mixed documents (PDF, DOCX, XLSX, images)
-- [x] OCR for scanned documents
-- [x] Semantic chunking with fallback
-- [x] Local LLM integration (llama-cpp-python)
-- [x] Citations on every answer (file + page + chunk_id)
-- [x] React UI with upload, query, and PDF viewer
-- [x] Persistent Chroma index
-- [x] Unit tests for core modules
-- [x] Docker Compose with GPU support
-- [x] Query logging and security (no raw text in logs)
-- [x] "Not found" response when no evidence
-
-Target: 75%+ citation accuracy on manual checks (85% ideal).
-
-## Demo Script for Executives
-
-### Setup (5 minutes)
-
-1. Start backend and frontend (see Quick Start above)
-2. Verify health endpoint: `curl http://127.0.0.1:8000/api/v1/health`
-
-### Demo Flow (10 minutes)
-
-**Step 1: Upload Documents**
-
-1. Open frontend at `http://localhost:5173`
-2. Navigate to "Upload" page
-3. Create project: `proj_demo`
-4. Upload 6 mixed documents:
-   - 2 digital PDFs (specifications, RFIs)
-   - 1 scanned PDF (old submittal)
-   - 1 DOCX (meeting notes)
-   - 1 XLSX (measurements table)
-   - 1 image (site photo with annotation)
-
-**Step 2: Trigger Ingestion**
-
-1. Click "Ingest Project" button
-2. Wait 30-60 seconds (progress indicator)
-3. Show ingestion report in logs:
-   ```bash
-   cat data/logs/ingest_report_proj_demo.json
-   ```
-   Expected output:
-   ```json
-   {
-     "project_id": "proj_demo",
-     "files_processed": 6,
-     "chunks_created": 147,
-     "errors": []
-   }
-   ```
-
-**Step 3: Query Documents (3 prepared questions)**
-
-Navigate to "Search" page and ask:
-
-**Q1:** "How deep did we dig the drainage ditch in November 2022 at Las Cruces City College?"
-
-- Expected: Concise answer (e.g., "3.5 feet") with 1-2 citations
-- Click citation → PDF viewer opens to correct page with highlighted text
-
-**Q2:** "Who was the contractor for subgrade compaction in Project X?"
-
-- Expected: Contractor name with citation to meeting notes or RFI
-- Show provenance (file, page, chunk_id)
-
-**Q3:** "What was the specified pipe diameter for drainage at Area B?"
-
-- Expected: Diameter value with unit (e.g., "12 inches") and citation to spec document
-- Demonstrate unit normalization in metadata
-
-**Step 4: Demonstrate Limitations & Safety**
-
-Ask: "What is the capital of France?"
-
-- Expected response: "Not found in indexed documents"
-- Explain: System never hallucinates; only answers from indexed content
-
-**Step 5: Show Operational Insights**
-
-```bash
-# Query log
-tail -20 data/logs/queries.log
-
-# Error log (should be empty or minimal)
-cat data/logs/errors.log
-```
-
-### Talking Points
-
-1. **Current Capability:**
-   - Handles 6 projects with ~1,000 documents total (tested)
-   - Citation accuracy: 82% on 20-sample manual validation
-   - Query response time: 200-400ms on RTX 4090
-
-2. **Limitations (honest assessment):**
-   - OCR accuracy: 85-95% (depends on scan quality)
-   - Table parsing: Basic (can extract rows but not complex nested tables)
-   - Hallucination guardrails: Strong but not perfect (see evaluation results)
-   - Single-project queries only (cross-project search not yet implemented)
-
-3. **Next Steps (expansion path):**
-   - **Short-term (2-4 weeks):**
-     - Improve table extraction (structured data → CSV)
-     - Add human-in-the-loop validation UI for extracted facts
-     - Expand to 10 projects, 100 documents each
-   
-   - **Medium-term (2-3 months):**
-     - Hybrid search (Elasticsearch + semantic)
-     - Cross-project queries
-     - Multi-user authentication and project permissions
-   
-   - **Long-term (6+ months):**
-     - Pilot cloud LLM (GPT-4) for final summarization (cost/accuracy comparison)
-     - Advanced table parsing with vision models
-     - Automated fact extraction and knowledge graph
-
-4. **The Ask:**
-   - Time: 8-12 weeks for production-ready version (multi-user, 100+ projects)
-   - Cost: ~$15K for cloud infra (if deploying beyond local use)
-   - Team: 1 full-time engineer + 0.5 FTE QA/validation
 
 ## Troubleshooting
+- Model path missing → Backend logs show `stub_mode: true`; download model or continue in stub mode
+- GPU issues → Set `model.n_gpu_layers: 0` in `config.yaml`
+- OCR fails silently → Ensure `tesseract` is installed; check with `tesseract --version`
+- Chroma telemetry → Disabled by default; ensure no outbound telemetry in production
+- Absolute paths → Verify `config.yaml` paths after moving hosts or container mounts
+- Frontend API URL → Set `VITE_API_URL` to backend address
+- Docker GPU runtime → Requires NVIDIA Container Toolkit
 
-### Model Not Found
+## Security & Privacy
+- Logs store metadata only (e.g., `chunk_id`, `project_id`, `query`, `elapsed_ms`, `confidence`)
+- Raw document text is never logged
+- User-scoped search prevents cross-project leakage
 
-If you see `stub_mode: true` in logs, the LLM model is missing.
-- Download from Hugging Face or provided source
-- Place at: `data/models/Llama-3.2-3B-Instruct-Q6_K.gguf`
+## Acceptance Criteria
+- Citations always returned (file + page + chunk_id)
+- Logs contain no raw document text
+- “Not found” response when no evidence (no hallucination)
+- Unit tests for core logic (70%+ coverage target)
+- Integration test for API endpoint
+- Works in stub mode (CI/CD friendly)
 
-### GPU Not Detected
+## Roadmap
+- Real-time ingestion stage streaming (SSE/WebSockets)
+- PDF citation previews in the UI
+- More precise token counting (migrate to `tiktoken`)
+- Expanded normalization (units, dates) for richer search facets
 
-Check:
-```bash
-nvidia-smi
-```
-
-If Docker doesn't see GPU:
-- Install NVIDIA Container Toolkit
-- Verify `runtime: nvidia` in docker-compose.yml
-
-### OCR Failing
-
-Install Tesseract:
-```bash
-sudo apt install tesseract-ocr tesseract-ocr-eng
-```
-
-Verify:
-```bash
-tesseract --version
-```
-
-## License
-
-Proprietary - Peter's internal project.
-
-## Support
-
-Contact: Peter (internal)
-
-## Changelog
-
-- **v0.1.0 (2025-11-14)**: Initial MVP release
-  - Multi-format ingestion
-  - Citation-first Q&A
-  - React frontend
-  - Docker Compose support
+## References
+- `DECISIONS.md` — Architectural decisions and tradeoffs
+- `CHANGELOG.md` — Release notes (latest: 0.2.0, rebranding and UX overhaul)
+- `INGESTION_CHECKLIST.md` — Operational checklist for new projects
