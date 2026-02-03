@@ -1,9 +1,11 @@
 """
 Query expansion to improve semantic search recall.
 Rewrites vague queries to include domain-specific terms.
+
+Key strategy: Map user intent to document types likely to contain the answer.
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Set
 import re
 import logging
 
@@ -15,29 +17,57 @@ class QueryExpander:
     
     # Domain-specific expansion rules for engineering/construction/environmental
     EXPANSION_RULES = {
-        # Project overview queries
-        "summary": ["overview", "scope of work", "project description"],
-        "purpose": ["objective", "goal", "scope"],
-        "about": ["description", "overview", "scope"],
+        # Project overview queries - need cover pages, proposals, scope docs
+        "summary": ["scope of work", "project description", "executive summary"],
+        "purpose": ["objective", "scope of work", "project purpose"],
+        "about": ["project description", "scope", "overview"],
+        "overview": ["executive summary", "project description", "scope of work"],
         
         # Location queries
-        "where": ["location", "site", "address", "city", "state"],
-        "located": ["location", "site address", "project site"],
-        "address": ["location", "site", "property"],
+        "where": ["location", "site address", "city", "property"],
+        "located": ["site address", "property location", "city state"],
+        "address": ["site location", "property address", "street"],
+        "location": ["site address", "city", "property"],
         
-        # Client/stakeholder queries
-        "client": ["owner", "customer", "contracted by", "prepared for"],
-        "who hired": ["client", "owner", "customer"],
+        # Client/stakeholder queries - contracts, proposals, cover letters
+        "client": ["owner", "contracted by", "agreement between", "prepared for"],
+        "who hired": ["client", "owner", "contracted by", "agreement"],
+        "owner": ["client", "property owner", "contracted by"],
+        "contractor": ["subcontractor", "contracted to", "performed by"],
         
         # Technical terms (environmental consulting)
-        "esa": ["environmental site assessment", "phase I", "phase II"],
-        "environmental": ["site assessment", "contamination", "remediation"],
-        "testing": ["sampling", "analysis", "investigation"],
-        "assessment": ["evaluation", "investigation", "study"],
+        "esa": ["environmental site assessment", "phase I", "phase II", "ESA"],
+        "environmental": ["site assessment", "contamination", "remediation", "hazardous"],
+        "testing": ["sampling", "analysis", "laboratory", "investigation"],
+        "assessment": ["evaluation", "investigation", "study", "report"],
+        "contamination": ["hazardous", "contaminated", "remediation", "cleanup"],
+        "asbestos": ["ACM", "asbestos-containing", "abatement", "survey"],
         
         # Project identification
-        "project number": ["job number", "project ID", "job no"],
+        "project number": ["job number", "project ID", "contract number"],
         "job": ["project", "contract", "work order"],
+        
+        # Date/time queries
+        "when": ["date", "dated", "year", "timeline"],
+        "date": ["dated", "year", "completed"],
+        
+        # Cost/budget queries  
+        "cost": ["budget", "fee", "amount", "price", "invoice"],
+        "budget": ["cost", "fee", "estimate", "amount"],
+        "fee": ["cost", "amount", "invoice", "payment"],
+    }
+    
+    # Map query intents to document types most likely to have answers
+    INTENT_DOC_HINTS = {
+        "client": ["contract", "agreement", "proposal", "cover letter"],
+        "owner": ["contract", "agreement", "proposal"],
+        "location": ["report", "proposal", "assessment", "cover"],
+        "summary": ["proposal", "report", "scope", "executive summary"],
+        "overview": ["proposal", "report", "scope"],
+        "cost": ["invoice", "proposal", "contract", "budget"],
+        "fee": ["invoice", "proposal", "contract"],
+        "date": ["contract", "report", "proposal", "letter"],
+        "team": ["proposal", "qualifications", "organization"],
     }
     
     # Patterns that indicate a vague/contextual query
@@ -68,8 +98,8 @@ class QueryExpander:
         # Check each word/phrase in query against expansion rules
         for keyword, expansions in self.EXPANSION_RULES.items():
             if keyword in query_lower:
-                # Add most relevant expansions
-                expanded_terms.update(expansions[:2])
+                # Add most relevant expansions (up to 3 for better recall)
+                expanded_terms.update(expansions[:3])
         
         if expanded_terms:
             # Combine original query with expanded terms
@@ -78,6 +108,25 @@ class QueryExpander:
             return expanded
         
         return query
+    
+    def get_doc_type_hints(self, query: str) -> List[str]:
+        """
+        Get document types likely to contain the answer.
+        
+        Args:
+            query: User query
+            
+        Returns:
+            List of document type keywords to boost in retrieval
+        """
+        query_lower = query.lower()
+        hints = set()
+        
+        for keyword, doc_types in self.INTENT_DOC_HINTS.items():
+            if keyword in query_lower:
+                hints.update(doc_types)
+        
+        return list(hints)
     
     def is_vague_query(self, query: str) -> bool:
         """

@@ -19,7 +19,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-from ..schemas.models import IngestRequest, IngestResponse
+from ..schemas.models import IngestRequest, IngestResponse, AsyncIngestResponse
 from ..core.extractors.pdf_extractor import PDFExtractor
 from ..core.extractors.docx_extractor import DOCXExtractor
 from ..core.extractors.image_ocr import ImageOCR
@@ -30,6 +30,7 @@ from ..core.indexer import Indexer
 from ..core.document_validator import DocumentValidator, DocumentQuality, SkipReason
 from ..core.project_mapper import get_project_mapper
 from ..core.filesystem_scanner import FileSystemProjectScanner
+from ..core.job_queue import get_job_queue
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -108,13 +109,91 @@ def resolve_project_identifiers(project_folder: str, raw_docs_path: Path) -> Dic
     return result
 
 
+@router.post("/projects/{project_id}/ingest/async", response_model=AsyncIngestResponse)
+async def ingest_project_async(
+    project_id: str,
+    request: IngestRequest = IngestRequest(),
+):
+    """
+    Queue document ingestion as a background job.
+    
+    This endpoint returns immediately with a job_id that can be used
+    to track progress. Use GET /api/v1/jobs/{job_id} to check status.
+    
+    This is the recommended endpoint for large projects with many files,
+    as it doesn't block the request while processing.
+    
+    Process:
+    1. Validate project folder exists
+    2. Queue ingestion job for background processing
+    3. Return job_id immediately
+    
+    The background job will:
+    - Discover and validate documents
+    - Extract text from valid documents
+    - Chunk with context preservation
+    - Generate embeddings
+    - Index in ChromaDB
+    - Generate detailed report
+    
+    Poll GET /api/v1/jobs/{job_id} to check:
+    - Progress percentage
+    - Files processed so far
+    - Any errors encountered
+    - Final result when complete
+    """
+    config = get_config()
+    
+    # Validate project directory exists before queuing
+    raw_docs_dir = Path(config["paths"]["raw_docs"]) / project_id
+    if not raw_docs_dir.exists():
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Project directory not found: {raw_docs_dir}. "
+                   f"Upload files first using POST /projects/{project_id}/upload"
+        )
+    
+    # Check for files
+    supported_exts = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
+    files_to_process = []
+    for ext in supported_exts:
+        files_to_process.extend(raw_docs_dir.rglob(f"*{ext}"))
+    files_to_process = [f for f in files_to_process if f.is_file() and not f.name.startswith('~$')]
+    
+    if not files_to_process:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No supported files found in {raw_docs_dir}. "
+                   f"Supported formats: {', '.join(supported_exts)}"
+        )
+    
+    # Queue the job
+    queue = get_job_queue()
+    job_id = queue.enqueue_ingest(
+        project_id=project_id,
+        files=request.files,
+    )
+    
+    logger.info(f"Queued async ingest job {job_id} for project {project_id} ({len(files_to_process)} files)")
+    
+    return AsyncIngestResponse(
+        job_id=job_id,
+        project_id=project_id,
+        message=f"Ingestion queued for {len(files_to_process)} files. Poll status URL for progress.",
+        status_url=f"/api/v1/jobs/{job_id}",
+    )
+
+
 @router.post("/projects/{project_id}/ingest", response_model=IngestResponse)
 async def ingest_project(
     project_id: str,
     request: IngestRequest = IngestRequest(),
 ):
     """
-    Ingest documents for a project with enhanced processing.
+    Ingest documents for a project with enhanced processing (SYNCHRONOUS).
+    
+    NOTE: For large projects, consider using POST /projects/{project_id}/ingest/async
+    which returns immediately and processes in the background.
 
     Process:
     1. Validate project folder exists
@@ -179,18 +258,47 @@ async def ingest_project(
             chroma_db_path=Path(config["paths"]["chroma_db"]),
         )
         
-        # Discover files
-        supported_exts = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
+        # Discover files - prioritize text-rich formats for faster ingestion
+        # For pilot: Focus on PDFs and DOCX which have the best Q&A value
+        primary_exts = {'.pdf', '.docx', '.doc'}  # High-value, fast to process
+        image_exts = {'.png', '.jpg', '.jpeg', '.tiff', '.bmp'}  # Slow OCR, often low value
+        
+        # Folders to skip (usually contain images/CAD with minimal Q&A value)
+        skip_folder_patterns = ['/Photos/', '/photos/', '/Images/', '/images/', '/CAD/', '/cad/']
+        
+        # Max image size to process (skip large site photos)
+        max_image_size_mb = 2.0
         
         if request.files:
             files_to_process = [raw_docs_dir / f for f in request.files]
         else:
             files_to_process = []
-            for ext in supported_exts:
+            
+            # First, get all primary documents (PDFs, DOCX)
+            for ext in primary_exts:
                 files_to_process.extend(raw_docs_dir.rglob(f"*{ext}"))
+            
+            # Then, selectively add images (skip large photos and image folders)
+            for ext in image_exts:
+                for f in raw_docs_dir.rglob(f"*{ext}"):
+                    # Skip files in image/photo folders
+                    if any(pattern in str(f) for pattern in skip_folder_patterns):
+                        logger.debug(f"Skipping image in excluded folder: {f.name}")
+                        continue
+                    # Skip large images (likely site photos)
+                    try:
+                        size_mb = f.stat().st_size / (1024 * 1024)
+                        if size_mb > max_image_size_mb:
+                            logger.debug(f"Skipping large image ({size_mb:.1f}MB): {f.name}")
+                            continue
+                    except:
+                        pass
+                    files_to_process.append(f)
+            
             # Filter temp files
             files_to_process = [f for f in files_to_process if f.is_file() and not f.name.startswith('~$')]
         
+        supported_exts = primary_exts | image_exts
         if not files_to_process:
             raise HTTPException(
                 status_code=400, 
@@ -198,7 +306,7 @@ async def ingest_project(
                        f"Supported formats: {', '.join(supported_exts)}"
             )
         
-        logger.info(f"Found {len(files_to_process)} files to process for project {project_id}")
+        logger.info(f"Found {len(files_to_process)} files to process for project {project_id} (skipped large images and photo folders)")
         
         # Process files
         all_chunks = []
@@ -326,6 +434,12 @@ async def ingest_project(
         failed_count = sum(1 for r in processing_results if r.status == ProcessingStatus.FAILED)
         
         # Build detailed report
+        def serialize_result(r):
+            """Convert FileProcessingResult to JSON-serializable dict."""
+            d = asdict(r)
+            d['status'] = r.status.value  # Convert enum to string
+            return d
+        
         report = {
             "project_id": project_id,
             "project_identifiers": project_ids,
@@ -336,7 +450,7 @@ async def ingest_project(
             "chunks_created": len(all_chunks),
             "duration_seconds": round(duration, 2),
             "timestamp": datetime.utcnow().isoformat() + 'Z',
-            "file_details": [asdict(r) for r in processing_results],
+            "file_details": [serialize_result(r) for r in processing_results],
             "skip_reasons": {},
             "errors": [],
         }

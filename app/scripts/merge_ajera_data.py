@@ -6,6 +6,7 @@ Creates unified Ajera dataset with employee + project info.
 import json
 from pathlib import Path
 
+
 print("Loading data files...")
 
 # Load time series data

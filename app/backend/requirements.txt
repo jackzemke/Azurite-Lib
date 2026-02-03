@@ -3,6 +3,7 @@ uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 python-multipart>=0.0.6
+aiofiles>=23.2.1
 
 # Document processing
 pdfplumber>=0.10.0
@@ -35,6 +36,11 @@ aiofiles>=23.0.0
 # Database
 pyodbc>=5.0.0
 
+# Job Queue
+redis>=5.0.0
+rq>=1.16.0
+rq-dashboard>=0.7.0
+
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
@@ -43,3 +49,4 @@ httpx>=0.25.0
 
 # Optional: Advanced OCR
 # paddleocr==2.7.0.3
+psutil

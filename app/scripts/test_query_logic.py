@@ -39,7 +39,7 @@ print(f"   Embedding length: {len(query_embedding)}")
 print(f"\n4. Querying indexer (project={project_id}, k={k})...")
 retrieved_chunks = indexer.query(
     query_embedding=query_embedding,
-    project_id=project_id,
+    project_ids=[project_id],
     top_k=k,
 )
 

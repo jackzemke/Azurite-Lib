@@ -30,6 +30,14 @@ class IngestResponse(BaseModel):
     timestamp: str
 
 
+class AsyncIngestResponse(BaseModel):
+    """Response for async ingestion - returns immediately with job ID."""
+    job_id: str = Field(..., description="Job ID for tracking progress")
+    project_id: str = Field(..., description="Project being ingested")
+    message: str = Field(..., description="Status message")
+    status_url: str = Field(..., description="URL to check job status")
+
+
 # Query models
 class Citation(BaseModel):
     """Citation for an answer."""

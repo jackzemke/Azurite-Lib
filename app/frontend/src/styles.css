@@ -408,12 +408,13 @@ body {
 .chat-container {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  height: 100vh;
   background: white;
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   border: 1px solid rgba(0,0,0,0.04);
   overflow: hidden;
+  position: relative;
 }
 
 .chat-header {
@@ -424,6 +425,10 @@ body {
   align-items: flex-start;
   gap: 2rem;
   background: linear-gradient(to bottom, #ffffff, #f9fafb);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
 }
 
 .chat-messages {
@@ -433,6 +438,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-height: 0; /* Important for flex overflow */
 }
 
 .chat-empty-state {
@@ -611,6 +617,10 @@ body {
   padding: 1.5rem 2rem;
   border-top: 1px solid #e5e7eb;
   background: white;
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
+  flex-shrink: 0;
 }
 
 .chat-input-form {
@@ -1427,3 +1437,343 @@ button:focus {
     width: 100%;
   }
 }
+
+/* ============================================================================
+   Admin Dashboard Styles
+   ============================================================================ */
+
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.admin-header h2 {
+  color: #f1f5f9;
+  font-size: 1.25rem;
+}
+
+.admin-close-btn {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.admin-close-btn:hover {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.admin-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.admin-left-panel {
+  width: 400px;
+  min-width: 350px;
+  padding: 1rem;
+  overflow-y: auto;
+  border-right: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.admin-right-panel {
+  flex: 1;
+  padding: 1rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-card {
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 1rem;
+  border: 1px solid #334155;
+}
+
+.admin-card h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+/* System Stats */
+.system-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.stat-row > span:first-child {
+  color: #64748b;
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.stat-row > span:last-child {
+  color: #e2e8f0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+}
+
+.stat-bar-container {
+  flex: 1;
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stat-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Services */
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #0f172a;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.service-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.service-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.service-name {
+  font-weight: 500;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.service-details {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.service-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.service-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.service-btn.start {
+  background: #10b981;
+  color: white;
+}
+
+.service-btn.start:hover {
+  background: #059669;
+}
+
+.service-btn.stop {
+  background: #ef4444;
+  color: white;
+}
+
+.service-btn.stop:hover {
+  background: #dc2626;
+}
+
+.service-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.services-note {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* Log Files */
+.log-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.log-file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.log-file-item:hover {
+  background: #334155;
+}
+
+.log-file-item.selected {
+  background: #3b82f6;
+}
+
+.log-file-icon {
+  font-size: 1.25rem;
+}
+
+.log-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-file-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-file-meta {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.stream-btn {
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0.7;
+}
+
+.stream-btn:hover {
+  opacity: 1;
+}
+
+/* Log Viewer */
+.log-viewer-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.log-viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.streaming-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.streaming-dot {
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.log-viewer {
+  flex: 1;
+  background: #0f172a;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  overflow: auto;
+  min-height: 0;
+}
+
+.log-content {
+  margin: 0;
+  padding: 1rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #a5f3fc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 2rem;
+}
+

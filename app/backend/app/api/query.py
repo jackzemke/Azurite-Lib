@@ -105,24 +105,32 @@ async def query_documents(request: QueryRequest):
         # Expand query for better semantic matching
         expanded_query = query_expander.expand_query(request.query)
         
+        # Get document type hints for boosting relevant document types
+        doc_type_hints = query_expander.get_doc_type_hints(request.query)
+        if doc_type_hints:
+            logger.info(f"Doc type hints for query: {doc_type_hints}")
+        
         # Embed expanded query
         query_embedding = embedder.model.encode([expanded_query])[0].tolist()
 
-        # Detect team/people queries for hybrid search
+        # Detect team/people queries for hybrid search (include Ajera time tracking)
         query_lower = request.query.lower()
         team_keywords = ["who worked", "who's working", "who is working", "team", "staff", 
-                         "people", "employees", "worked on", "working on"]
+                         "people", "employees", "worked on", "working on", "personnel",
+                         "engineer", "engineers", "manager", "pm", "project manager",
+                         "architect", "designer", "who was", "who did", "who is"]
         is_team_query = any(keyword in query_lower for keyword in team_keywords)
         
         # For broad queries, retrieve more chunks for better synthesis
         is_broad_query = any(term in query_lower for term in ["summary", "overview", "purpose", "about", "describe", "explain", "what was"])
         retrieval_k = min(request.k * 2, 15) if is_broad_query else request.k
         
-        # Retrieve chunks
+        # Retrieve chunks with doc type boosting
         retrieved_chunks = indexer.query(
             query_embedding=query_embedding,
             project_ids=project_ids_to_search,
             top_k=retrieval_k,
+            doc_type_hints=doc_type_hints,
         )
         
         # If no results with expanded query, try alternative formulations
@@ -134,32 +142,47 @@ async def query_documents(request: QueryRequest):
                     query_embedding=alt_embedding,
                     project_ids=project_ids_to_search,
                     top_k=retrieval_k,
+                    doc_type_hints=doc_type_hints,
                 )
                 if retrieved_chunks:
                     logger.info(f"Found results with alternative query: '{alt_query}'")
                     break
 
-        # Debug logging
+        # Enhanced debug logging for failure isolation
         scope = f"projects={request.project_ids}" if request.project_ids else "all projects"
-        logger.info(f"Query '{request.query}' for {scope} returned {len(retrieved_chunks)} chunks")
+        logger.info(f"[RETRIEVAL] Query: '{request.query}' | Scope: {scope} | Results: {len(retrieved_chunks)}")
+        
         if retrieved_chunks:
-            logger.info(f"First chunk: {retrieved_chunks[0].get('chunk_id', 'no_id')}")
+            # Log retrieval quality metrics (chunk_ids only, not text - privacy)
+            chunk_summary = []
+            for i, chunk in enumerate(retrieved_chunks[:5]):
+                dist = chunk.get('distance', 0)
+                fname = Path(chunk['metadata'].get('file_path', '')).name[:30]
+                chunk_summary.append(f"[{i+1}] d={dist:.3f} {fname}")
+            logger.info(f"[RETRIEVAL] Top chunks: {'; '.join(chunk_summary)}")
+        else:
+            logger.warning(f"[RETRIEVAL] No chunks found for query: '{request.query}'")
         
         # For team queries, get Ajera data if project_id available
         ajera_team_data = None
         if is_team_query and request.project_ids and len(request.project_ids) == 1:
             try:
-                ajera = get_ajera_data()
-                project_id = request.project_ids[0]
-                team = ajera.get_project_team_with_hours(project_id)
+                resolver = get_project_resolver()
+                project_folder = request.project_ids[0]
+                
+                # Use resolver to get team data (handles folder -> Ajera key mapping)
+                team = resolver.get_project_team_from_folder(project_folder)
                 if team:
                     # Top 10 employees by hours
                     top_team = team[:10]
                     ajera_team_data = {
                         "total_employees": len(team),
-                        "top_employees": top_team
+                        "top_employees": top_team,
+                        "project_folder": project_folder
                     }
-                    logger.info(f"Team query: Found {len(team)} employees for project {project_id}")
+                    logger.info(f"Team query: Found {len(team)} employees for project folder '{project_folder}'")
+                else:
+                    logger.info(f"Team query: No Ajera records found for folder '{project_folder}'")
             except Exception as e:
                 logger.warning(f"Error getting Ajera team data: {e}")
 

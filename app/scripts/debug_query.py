@@ -36,7 +36,7 @@ print(f"Query embedding size: {len(query_embedding)}")
 # Query without filter
 results_no_filter = indexer.query(
     query_embedding=query_embedding,
-    project_id=None,
+    project_ids=None,
     top_k=6,
 )
 print(f"\nResults WITHOUT filter: {len(results_no_filter)}")
@@ -47,7 +47,7 @@ for r in results_no_filter[:2]:
 # Query with filter
 results_with_filter = indexer.query(
     query_embedding=query_embedding,
-    project_id="demo_project",
+    project_ids=["demo_project"],
     top_k=6,
 )
 print(f"\nResults WITH filter (project=demo_project): {len(results_with_filter)}")

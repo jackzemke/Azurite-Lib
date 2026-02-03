@@ -51,14 +51,13 @@ def ingest_project(project_id: str, files: list = None):
 
 
 def main():
+    global API_URL
     parser = argparse.ArgumentParser(description="Ingest documents into Project Library")
     parser.add_argument("--project", required=True, help="Project ID")
     parser.add_argument("--files", nargs="*", help="Specific files to ingest (optional)")
     parser.add_argument("--api-url", default=API_URL, help="API base URL")
     
     args = parser.parse_args()
-    
-    global API_URL
     API_URL = args.api_url
     
     return ingest_project(args.project, args.files)

@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from pathlib import Path
 
-from .api import upload, ingest, ingest_v2, query, health, ajera
+from .api import upload, ingest, ingest_v2, query, health, ajera, jobs, admin
 from .core.ajera_loader import init_ajera_data
 from .core.project_mapper import init_project_mapper
 from .core.project_resolver import init_project_resolver
@@ -62,12 +62,14 @@ app.include_router(ingest_v2.router, prefix="/api/v1", tags=["ingest"])
 app.include_router(ingest.router, prefix="/api/v1/legacy", tags=["ingest-legacy"])
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(ajera.router, prefix="/api/v1", tags=["ajera"])
+app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 
 # Import and include documents router
 from .api import documents, projects
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 app.include_router(projects.router, prefix="/api/v1", tags=["projects"])
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 
 
 @app.get("/")

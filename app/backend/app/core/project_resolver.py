@@ -267,6 +267,60 @@ class UnifiedProjectResolver:
                 "matched_fs": len(fs_matched),
             }
         }
+    
+    def resolve_folder_to_ajera_key(self, folder_name: str) -> Optional[str]:
+        """
+        Resolve a folder name to an Ajera project key.
+        
+        This is needed to look up team/hours data in Ajera from ChromaDB project_id.
+        
+        Args:
+            folder_name: Folder name from raw_docs (e.g., "4-Las Vegas Transfer Station Expansion (4229854)")
+        
+        Returns:
+            Ajera project_key (e.g., "4229854") or None
+        """
+        self._ensure_fs_scan()
+        
+        # Get file system info for this folder
+        fs_project = self._fs_scanner.projects.get(folder_name)
+        if not fs_project:
+            return None
+        
+        # Try each file_id extracted from the folder name
+        for file_id in fs_project.get("file_ids", []):
+            # Use mapper: file_id -> project_key
+            project_key = self.mapper.get_project_key(file_id)
+            if project_key:
+                # Verify it exists in Ajera
+                if self.ajera.data and project_key in self.ajera.data.get("project_to_employees", {}):
+                    return project_key
+        
+        # Fallback: Check if any file_id IS the project_key directly
+        for file_id in fs_project.get("file_ids", []):
+            if self.ajera.data and file_id in self.ajera.data.get("project_to_employees", {}):
+                return file_id
+        
+        return None
+    
+    def get_project_team_from_folder(self, folder_name: str) -> List[Dict[str, Any]]:
+        """
+        Get team info for a project from its folder name.
+        
+        Convenience method that resolves folder -> Ajera key -> team data.
+        
+        Args:
+            folder_name: Folder name from raw_docs
+        
+        Returns:
+            List of team members with hours (same as AjeraData.get_project_team_with_hours)
+        """
+        project_key = self.resolve_folder_to_ajera_key(folder_name)
+        if not project_key:
+            logger.debug(f"Could not resolve folder '{folder_name}' to Ajera project key")
+            return []
+        
+        return self.ajera.get_project_team_with_hours(project_key)
 
 
 # Global instance

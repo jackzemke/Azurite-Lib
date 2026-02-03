@@ -1,233 +1,149 @@
 # AI Coding Agent Instructions
 
-## System Overview
+## Mission: 2/18 Pilot Stabilization
 
-**ProjectMind** is a project knowledge retrieval system for an engineering/construction firm. It eliminates tribal knowledge barriers by making past project data instantly accessible through natural language queries. The architecture follows a RAG (Retrieval-Augmented Generation) pipeline with strict citation requirements—**never hallucinate without source**.
+**Priority:** Make AAA reliable for non-technical users. Retrieval quality > new features.
 
-### Business Problem
-Engineers and marketing staff struggle to find relevant past work due to:
-- Complex, hard-to-navigate file storage systems
-- Tribal knowledge locked in individual employees' heads
-- Time pressure during proposal writing and solution design
+**Success Criteria:** A skeptical pilot user says "It actually helped me find something faster than digging through folders."
 
-### Core Use Cases
-1. **Engineers**: "What was the pipe burial depth on Las Cruces Community Center?" → System searches Jane Doe's projects, returns answer with citations
-2. **Marketing/BD**: "Show Transit Authority projects from last 3 years with similar scope" → System finds comparable work for proposals
-3. **Fallback**: When documents don't exist, return project IDs and database locations to guide users
+## Architecture
 
-### Key Features
-- **User-scoped search**: Queries automatically filtered to employee's project history (via Ajera integration)
-- **Semantic similarity**: Find projects by description/scope, not just keywords
-- **Citation-first**: Always return source documents (project ID, file path, page number)
-- **Hybrid retrieval**: Structured data (project IDs, locations) + unstructured data (document content)
+**Stack:** FastAPI + React/Vite + ChromaDB (embedded) + Llama-3.2-3B-Instruct (Q6_K) + all-MiniLM-L6-v2
 
-**Core Components:**
-- **Backend:** FastAPI (Python 3.10+) with llama-cpp-python for local LLM inference
-- **Frontend:** React + TypeScript + Vite, styled with gradient purple/indigo theme
-- **Vector DB:** ChromaDB (embedded, persistent at `data/index/chroma/`)
-- **LLM:** Llama-3.2-3B-Instruct (Q6_K quantized, GGUF format) optimized for RTX 4090
-- **Embeddings:** all-MiniLM-L6-v2 (384-dim, sentence-transformers)
-- **ERP Integration:** Ajera SQL Server (via pyodbc) for employee-project mappings and time tracking
-
-**Data Flow:** 
-- **Ingestion:** Upload → Extract → Normalize → Chunk → Embed → Index (with project/employee metadata)
-- **Query:** User context → Filter projects → Semantic search → LLM synthesis → Citations
-- **Fallback:** No docs found → Return project IDs from Ajera + database locations
-
-## Critical Project-Specific Patterns
-
-### 1. Stub Mode Architecture
-The system **gracefully degrades** when the LLM model file is missing (`data/models/Llama-3.2-3B-Instruct-Q6_K.gguf`). Check `LLMClient.is_stub_mode()` and return deterministic test responses. This enables CI/CD without large model downloads.
-
-```python
-# All responses must include stub_mode flag
-response = QueryResponse(..., stub_mode=llm_client.is_stub_mode())
+**Data Flow:**
+```
+Ingestion: Upload → pdfplumber/docx extract → EnhancedChunker → Embedder → ChromaDB
+Query:     Embed → QueryExpander → Filter(employee) → Retrieve top-K → Diversity filter → LLM → JSON+citations
 ```
 
-### 2. Semantic-First Chunking with Fallback
-`Chunker` detects headings (ALL CAPS, numbered sections, keyword-based) and splits at semantic boundaries. If no headings found, falls back to fixed 500-token windows with 100-token overlap. See `app/backend/app/core/chunker.py` for patterns.
+## Critical Patterns
 
-**Key:** Engineering docs have structure—exploit it before brute-force splitting.
+### 1. Retrieval Pipeline (Highest Priority Area)
+Current issues: inconsistent results, duplicate citations, requires "perfect" queries.
 
-### 3. Citation Provenance Triple
-Every citation **must** include `(project_id, file_path, page, chunk_id)`. The LLM prompt (`app/backend/app/prompts/qa_prompt.txt`) enforces JSON output with mandatory citations. Parse and validate with Pydantic `Citation` model.
+**Key components to modify:**
+- `app/backend/app/core/indexer.py` — `query()` method, diversity filtering (`_apply_diversity`), doc type boosting
+- `app/backend/app/core/query_expander.py` — synonym expansion, query rewriting, `get_doc_type_hints()`
+- `app/backend/app/core/enhanced_chunker.py` — chunk boundaries, context preservation
+- `app/backend/config.yaml` — `chunk_size_tokens: 500`, `chunk_overlap_tokens: 100`, `top_k: 6`
 
-**Never return an answer without citations** unless explicitly "Not found in indexed documents".
-
-### 4. Security-First Logging
-**Log metadata only, never raw document text.** See `_log_query()` in `app/backend/app/api/query.py`:
-- ✅ Log: `chunk_id`, `project_id`, `query`, `elapsed_ms`, `confidence`
-- ❌ Never log: chunk text content, file contents
-
-This is for privacy compliance (engineering docs may be sensitive).
-
-### 5. User-Scoped Query with Ajera Integration
-The `QueryRequest` model accepts `employee_id: str` (optional). When provided, the system:
-1. Looks up employee's project history from Ajera time series data (`data/ajera_time_series.json`)
-2. Filters ChromaDB search to only those projects
-3. If no documents found, returns Ajera project IDs and locations as fallback
-
-```python
-# User-scoped query flow
-employee_projects = ajera_data['employee_to_projects'][employee_id]['projects']
-results = indexer.query(query_embedding, project_ids=employee_projects, top_k=6)
-# If results empty: return project metadata from Ajera instead of "not found"
-```
-
-This prevents information leakage (employees only see their projects) and improves relevance (search smaller corpus).
-
-### 6. OCR Triggering Logic
-PDF extraction uses `pdfplumber`. If extracted text length < `config.yaml:ocr.min_text_length` (default 100), trigger Tesseract OCR. Check `PDFExtractor.extract()` for the decision flow.
-
-### 7. Absolute Paths in Config
-All paths in `config.yaml` are **absolute** (e.g., `/home/jack/lib/project-library/data/...`). This simplifies Docker volume mounts. Update paths when deploying to new environments.
-
-### 8. Ajera Data Loading Strategy
-Employee-project mappings are stored in `data/ajera_time_series.json` with structure:
-```json
-{
-  "employee_to_projects": {
-    "5712": {
-      "name": "Jane Doe",
-      "projects": ["33568", "12345"],
-      "timeline": {"33568": [{"date": "2024-12-07", "hours": 5.0}]}
-    }
-  },
-  "project_to_employees": { ... }
-}
-```
-
-Load this on backend startup (cache in memory) for fast filtering. Refresh periodically via Ajera queries (daily/weekly batch job).
-
-## Developer Workflows
-
-### Starting Development Servers
+**Debugging retrieval:**
 ```bash
-# Backend (from project root)
-source .venv/bin/activate
-cd app/backend
+python app/scripts/debug_query.py --query "pipe diameter" --project demo_project
+# Shows: embedding, distances, retrieved chunks WITHOUT LLM
+```
+
+### 2. Failure Isolation
+When output is bad, identify: Chunking? Retrieval? Prompt? Generation?
+
+**Logging tags in `query.py`:**
+```python
+logger.info(f"[RETRIEVAL] Query: '...' | Scope: ... | Results: {len(chunks)}")
+logger.info(f"[RETRIEVAL] Top chunks: [1] d=0.35 filename; [2] d=0.42 ...")
+# Log chunk_ids and distances, NOT chunk text (privacy)
+```
+
+**Debug scripts:**
+- `app/scripts/debug_query.py` — bypasses LLM, shows raw retrieval
+- `app/scripts/debug_chromadb.py` — inspect index contents
+- `app/scripts/validate_e2e.py` — full pipeline health check
+
+### 3. Stub Mode
+System runs without 5GB model. Check `llm_client.stub_mode` in all responses:
+```python
+response = QueryResponse(..., stub_mode=llm_client.stub_mode)
+```
+
+### 4. Citation Provenance — NEVER omit
+Every answer needs `citations: [{project_id, file_path, page, chunk_id}]`. Empty array + `confidence: "low"` if nothing found.
+
+### 5. Security Logging
+**Metadata only.** See `_log_query()` in `query.py`:
+```python
+# ✅ chunk_id, project_id, query, elapsed_ms, confidence
+# ❌ NEVER: chunk text, file contents
+```
+
+### 6. Ingestion Pipeline
+**Sync endpoint:** `POST /api/v1/projects/{project_id}/ingest` — blocks until complete
+**Async endpoint:** `POST /api/v1/projects/{project_id}/ingest/async` — returns job_id (requires Redis)
+
+**Key files:**
+- `app/backend/app/api/ingest_v2.py` — enhanced ingestion with validation
+- `app/backend/app/core/job_queue.py` — async job infrastructure (Redis Queue)
+- `app/backend/app/core/ingest_worker.py` — background processing logic
+
+**Performance notes:**
+- Large uploads: Use async endpoint, poll `/api/v1/jobs/{job_id}` for status
+- Bottlenecks: PDF extraction (pdfplumber), embedding generation
+- No Redis: Falls back to synchronous processing
+
+### 7. Concurrency (Future Focus)
+CPU fallback under concurrent load causes severe latency. For pilot (single-user), acceptable.
+For wider deployment, consider: request queuing, GPU batching, or cloud inference.
+
+## Developer Commands
+
+```bash
+# Backend (port 8000)
+source .venv/bin/activate && cd app/backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
-# Frontend (separate terminal)
-cd app/frontend
-npm run dev  # Runs on http://localhost:5173
-```
+# Frontend (port 5173)
+cd app/frontend && npm run dev
 
-### Running Tests
-```bash
-# From project root
-pytest -v                          # All tests
-pytest tests/test_chunker.py -v   # Specific test
-pytest --cov=app.backend.core     # With coverage
-```
+# Tests
+pytest -v
+pytest tests/test_retrieval_quality.py -v  # Vague query tests
+pytest tests/test_query_endpoint.py -v     # Integration tests
 
-**Test Philosophy:** Unit tests for extractors/chunker/embedder (isolated), integration tests for API endpoints (full pipeline). See `tests/test_query_endpoint.py` for FastAPI `TestClient` patterns.
-
-### CLI Workflows
-```bash
-# Ingest documents
-python app/scripts/ingest_cli.py --project proj_demo
-
-# Debug query logic (bypasses API)
-python app/scripts/debug_query.py --query "pipe diameter" --project proj_demo
-
-# E2E validation (health + query + ingestion)
+# Debug tools
+python app/scripts/debug_query.py --query "..." --project demo_project
 python app/scripts/validate_e2e.py
-
-# Evaluation against ground truth
-python evaluation/eval_metrics.py --project proj_demo
+python app/scripts/debug_chromadb.py
 ```
 
-### Docker Compose with GPU
-```bash
-docker-compose up --build  # Requires NVIDIA Container Toolkit
-docker-compose logs -f backend
-```
+## Key Files
 
-**GPU Note:** Check `deploy.resources` in `docker-compose.yml`. If GPU unavailable, set `model.n_gpu_layers: 0` in `config.yaml`.
+| Area | File |
+|------|------|
+| **RAG pipeline** | `app/backend/app/api/query.py` |
+| **Retrieval + diversity** | `app/backend/app/core/indexer.py` |
+| **Query rewriting** | `app/backend/app/core/query_expander.py` |
+| **Chunking** | `app/backend/app/core/enhanced_chunker.py` |
+| **Embeddings** | `app/backend/app/core/embedder.py` |
+| **LLM + stub mode** | `app/backend/app/core/llm_client.py` |
+| **QA prompt** | `app/backend/app/prompts/qa_prompt.txt` |
+| **Config** | `app/backend/config.yaml` |
+| **Retrieval tests** | `tests/test_retrieval_quality.py` |
 
-## File Organization Conventions
+## Retrieval Improvement Levers
 
-### Data Persistence (`data/`)
-```
-data/
-├── raw_docs/{project_id}/     # Uploaded documents
-├── chunks/{project_id}/        # {chunk_id}.json files
-├── embeddings/                 # {project_id}.parquet files
-├── index/chroma/               # ChromaDB SQLite + HNSW index
-├── models/                     # LLM GGUF files (not in git)
-└── logs/                       # queries.log, ingest_report_{project}.json
-```
+| Lever | Current | Notes |
+|-------|---------|-------|
+| Chunk size | 500 tokens | Try 300-800 |
+| Overlap | 100 tokens | Try 50-150 |
+| top_k | 6 | Try 10 with stricter re-rank |
+| Diversity | max 2/doc + family dedup | Prevents invoice flooding |
+| Doc type boost | 0.05 distance reduction | Boosts contracts for "client" queries |
+| Query expansion | 3 synonyms per keyword | See `EXPANSION_RULES` |
 
-**Important:** `data/models/` is excluded from git. Check README for model download instructions.
+## Test Cases for Vague Queries
 
-### Backend Structure
-- `app/api/`: FastAPI routers (upload, ingest, query, health)
-- `app/core/`: Business logic (extractors, chunker, embedder, indexer, llm_client)
-- `app/prompts/`: Plain text prompt templates (`.txt` files, not Python)
-- `app/schemas/`: Pydantic models for validation
+These must pass (`tests/test_retrieval_quality.py`):
+- `"who was the client"` → returns results with distance < 0.6, contract in top 2
+- `"summary"` → returns results with distance < 0.5
+- `"what is this project about"` → returns results with distance < 0.5
+- `"environmental site assessment"` → technical query, distance < 0.45
+- Diversity: max 2 chunks per file, max 4 chunks from same doc family (e.g., invoices)
 
-### Frontend Structure
-- `src/pages/`: SearchPage, UploadPage (main views)
-- `src/components/`: ResultCard (reusable UI)
-- `styles.css`: Global styles with custom scrollbars, gradient theme
+## Acceptance Criteria
 
-## Integration Points
-
-### Chroma Indexing
-```python
-# Upsert chunks (app/core/indexer.py)
-indexer.upsert_chunks(chunks, embeddings)
-
-# Query with project filtering
-results = indexer.query(query_embedding, project_ids=["proj_demo"], top_k=6)
-```
-
-ChromaDB uses HNSW for approximate nearest neighbors. Indexed fields: `chunk_id`, `project_id`, `file_path`, `page_number`, `text`.
-
-### LLM Client
-```python
-# app/core/llm_client.py
-llm_output = llm_client.generate_json(prompt, max_tokens=512)
-# Returns dict with keys: answer, citations, confidence
-```
-
-**Temperature is 0.0** for deterministic output. Increase if creative responses needed (unlikely for citation-heavy QA).
-
-### Normalizer
-Detects and normalizes dates (ISO 8601) and units (feet→meters, inches→cm). Returns `(normalized_text, metadata_dict)`. Store both in chunk metadata for future multi-modal search.
-
-## Common Gotchas
-
-1. **Model Path:** If backend logs show `stub_mode: true`, check `data/models/Llama-3.2-3B-Instruct-Q6_K.gguf` exists.
-2. **CORS in Production:** `main.py` allows all origins (`allow_origins=["*"]`). Restrict in production.
-3. **Token Counting:** Uses whitespace splitting (fast approximation). TODO: Migrate to `tiktoken` for accuracy.
-4. **Frontend API URL:** Vite expects `VITE_API_URL=http://localhost:8000`. Update `.env` if backend port changes.
-5. **Tesseract Dependency:** OCR fails silently if `tesseract-ocr` not installed. Check with `tesseract --version`.
-
-## Architectural Decisions Reference
-
-See `DECISIONS.md` for rationale behind:
-- Why pdfplumber over PyMuPDF (table extraction, bounding boxes)
-- Why ChromaDB over Qdrant (embedded, simpler for local-first)
-- Why llama-cpp-python over vLLM (lower memory, better quantization)
-- Prompt engineering strategy (strict JSON output)
-
-## Acceptance Criteria Checklist
-
-When implementing new features, ensure:
-- [ ] Citations always returned (file + page + chunk_id)
-- [ ] Logs contain no raw document text
-- [ ] "Not found" response when no evidence (no hallucination)
-- [ ] Unit tests for core logic (70%+ coverage target)
-- [ ] Integration test for API endpoint
-- [ ] Works in stub mode (CI/CD friendly)
-
-## Key Files to Reference
-
-- **Pipeline orchestration:** `app/backend/app/api/ingest.py` (full extract→index flow)
-- **Query logic:** `app/backend/app/api/query.py` (RAG + LLM + validation)
-- **Prompt template:** `app/backend/app/prompts/qa_prompt.txt` (LLM instructions)
-- **Schema definitions:** `app/backend/app/schemas/models.py` (Pydantic models)
-- **Config:** `app/backend/config.yaml` (all hyperparameters, paths)
-- **Test examples:** `tests/test_chunker.py`, `tests/test_query_endpoint.py`
+- [x] Vague queries ("what's this project about") return relevant results
+- [x] No duplicate citations from same file in single response
+- [x] Sibling documents (multiple invoices) deduplicated
+- [ ] Graceful "I couldn't find that" instead of hallucination
+- [x] Citations always present (or empty + low confidence)
+- [x] Works in stub mode (CI/CD)
+- [x] No raw text in logs
+- [x] Retrieval quality tests pass

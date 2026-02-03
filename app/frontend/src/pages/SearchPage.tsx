@@ -271,6 +271,9 @@ export default function SearchPage({ onOpenUpload, onOpenHelp }: SearchPageProps
                selectedProjects.length === 0 ? 'All projects' : `${selectedProjects.length} project${selectedProjects.length > 1 ? 's' : ''}`}
             </p>
           )}
+          <p style={{margin: '0.35rem 0 0 0', color: '#9ca3af', fontSize: '0.75rem'}}>
+            Employee filter uses Ajera timesheets • Project filter limits document search
+          </p>
         </div>
         
         <div style={{display: 'flex', gap: '0.75rem'}}>
@@ -561,24 +564,35 @@ export default function SearchPage({ onOpenUpload, onOpenHelp }: SearchPageProps
         {messages.length === 0 ? (
           <div className="chat-empty-state">
             <div style={{fontSize: '3rem', marginBottom: '1rem'}}>💎</div>
-            <h3 style={{color: '#374151', marginBottom: '0.5rem', fontWeight: 600}}>Welcome to Azurite Archive Assistant</h3>
-            <p style={{color: '#6b7280', marginBottom: '1rem'}}>
-              Your AI-powered guide to SMA's project knowledge base.
+            <h3 style={{color: '#374151', marginBottom: '0.5rem', fontWeight: 600}}>Ask me about your projects</h3>
+            <p style={{color: '#6b7280', marginBottom: '1.5rem', maxWidth: '400px'}}>
+              I can search documents and pull team info from Ajera timesheets.
             </p>
             <div style={{
               textAlign: 'left',
               backgroundColor: '#f3f4f6',
               borderRadius: '12px',
               padding: '1.5rem',
-              maxWidth: '400px',
+              maxWidth: '450px',
               margin: '0 auto'
             }}>
               <p style={{color: '#374151', fontWeight: 600, marginBottom: '0.75rem', fontSize: '0.9rem'}}>💡 Try asking:</p>
-              <ul style={{color: '#6b7280', fontSize: '0.875rem', margin: 0, paddingLeft: '1.25rem', lineHeight: 1.8}}>
-                <li>"What was the pipe burial depth on Acomita Day School?"</li>
-                <li>"Show me stormwater projects from the last 2 years"</li>
-                <li>"What soil conditions were found at the Pueblo site?"</li>
+              <ul style={{color: '#6b7280', fontSize: '0.875rem', margin: 0, paddingLeft: '1.25rem', lineHeight: 2}}>
+                <li>"Who was the client for this project?"</li>
+                <li>"Who worked on this project?" <span style={{color: '#9ca3af', fontSize: '0.8rem'}}>(from Ajera)</span></li>
+                <li>"What was the scope of work?"</li>
+                <li>"What soil conditions were found?"</li>
               </ul>
+              {selectedEmployee && (
+                <p style={{color: '#667eea', fontSize: '0.8rem', marginTop: '1rem', fontWeight: 500}}>
+                  ✓ Filtering to {employees.find(e => e.employee_id === selectedEmployee)?.name}'s projects
+                </p>
+              )}
+              {selectedProjects.length > 0 && !selectedEmployee && (
+                <p style={{color: '#667eea', fontSize: '0.8rem', marginTop: '1rem', fontWeight: 500}}>
+                  ✓ Searching {selectedProjects.length} selected project{selectedProjects.length > 1 ? 's' : ''}
+                </p>
+              )}
             </div>
           </div>
         ) : (

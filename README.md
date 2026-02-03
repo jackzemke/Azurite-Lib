@@ -2,17 +2,20 @@
 
 A cite-first, retrieval-augmented knowledge system for engineering and construction projects. AAA makes past work instantly discoverable via natural language, with strict provenance on every answer and safe logging practices. Built for accuracy, privacy, and operational reliability.
 
+**Target:** 2/18 Pilot Stabilization — Make AAA reliable for non-technical users. Retrieval quality > new features.
+
 - Backend: FastAPI (Python 3.10+) + `llama-cpp-python` for local inference
 - Frontend: React + TypeScript + Vite
 - Vector DB: ChromaDB (embedded, persistent)
 - LLM: Llama-3.2-3B-Instruct (Q6_K, GGUF), optimized for RTX 4090; deterministic temperature=0.0
 - Embeddings: `sentence-transformers` all-MiniLM-L6-v2 (384-d)
-- ERP Integration: Ajera (SQL Server via `pyodbc`) for user-scoped project filtering
+- ERP Integration: Ajera unified JSON (77MB, 12,529 projects) for employee-scoped filtering
 
 ## Why AAA
 - Citation-first answers: Always returns document evidence `(project_id, file_path, page, chunk_id)`
-- User-scoped search: Respects employee project history to reduce noise and leakage
+- User-scoped search: Employee filter uses Ajera timesheets to show only relevant projects
 - Semantic-first chunking: Engineering docs are structured; AAA splits by headings before windowing
+- Query expansion: Synonyms and doc-type hints improve vague query results
 - Stub-mode reliability: Gracefully degrades when local model is unavailable (CI/CD friendly)
 - Privacy by design: Logs metadata only; never logs raw document text
 
@@ -53,13 +56,16 @@ Primary use cases:
 
 ## Features
 - Citation provenance triple: `(project_id, file_path, page, chunk_id)` with every answer
-- Hybrid retrieval: Structured filters (projects) + semantic search over document chunks
+- Hybrid retrieval: Structured filters (projects, employees) + semantic search over document chunks
+- Query expansion: Automatic synonym expansion and doc-type boosting for vague queries
+- Diversity filtering: Max 2 chunks per file, max 4 from same doc family (prevents invoice flooding)
 - Semantic-first chunking with fallback windowing (500 tokens, 100 overlap)
 - OCR trigger: If extracted text length < `ocr.min_text_length` (default 100), Tesseract OCR is run
 - Stub mode: Deterministic test responses when model file is missing
 - Security-first logging: Metadata-only; no raw document text is logged
-- Upload + ingest: Directory-based uploads, auto-detect project ID from folder name
-- Rebranded frontend: Azurite Archive Assistant (AAA) with onboarding modal and improved UX
+- Async upload + ingest: Directory-based uploads with background processing via Redis Queue
+- Employee filter: Uses Ajera timesheet data to scope searches to relevant projects
+- Simple UI: Chat-first interface with optional employee/project filters
 
 ## Data Flow
 - Ingestion: Upload → Extract → Normalize → Chunk → Embed → Index (with metadata)
@@ -71,23 +77,25 @@ Primary use cases:
 app/
    backend/
       app/
-         api/            # FastAPI routers (upload, ingest, query, health)
-         core/           # Extractors, chunker, embedder, indexer, llm_client
+         api/            # FastAPI routers (upload, ingest, query, jobs, ajera, health)
+         core/           # Extractors, chunker, embedder, indexer, llm_client, query_expander
          prompts/        # Prompt templates (strict JSON for QA)
          schemas/        # Pydantic models
       config.yaml       # Absolute paths and runtime config
       requirements.txt
    frontend/
-      src/              # React + Vite UI
+      src/
+         pages/          # SearchPage, UploadPage
+         components/     # WelcomeModal, HelpModal
       package.json
-scripts/              # CLI tools for ingestion and evaluation
+   scripts/             # CLI tools for ingestion, debugging, project management
 data/
-   raw_docs/{project_id}/
-   chunks/{project_id}/
-   embeddings/
-   index/chroma/
-   models/            # GGUF models (not in git)
-   logs/
+   raw_docs/{project_id}/   # Uploaded documents
+   chunks/{project_id}/     # Processed chunks (JSON)
+   index/chroma/            # ChromaDB persistent storage
+   models/                  # GGUF models (not in git)
+   logs/                    # Ingestion reports
+   ajera_unified.json       # Ajera timesheet data (77MB)
 ```
 
 ## Setup
@@ -95,6 +103,7 @@ data/
 - Python 3.10+
 - Node.js 18+
 - Tesseract OCR (`tesseract` command on PATH)
+- Redis (optional, required for async job queue)
 - NVIDIA GPU recommended (RTX 4090), CPU works with reduced performance
 
 ### Create Python environment
@@ -128,17 +137,36 @@ bash scripts/download_model.sh
 
 ## Development
 ### Backend (FastAPI)
-```
+```bash
 source .venv/bin/activate
 cd app/backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### Frontend (Vite)
-```
+```bash
 cd app/frontend
 npm run dev  # http://localhost:5173
 ```
+
+### With Async Job Queue (Recommended)
+```bash
+# Terminal 1: Start Redis
+redis-server
+
+# Terminal 2: Start RQ worker
+source .venv/bin/activate
+python app/scripts/run_worker.py
+
+# Terminal 3: Start backend
+source .venv/bin/activate && cd app/backend
+uvicorn app.main:app --reload --port 8000
+
+# Terminal 4: Start frontend
+cd app/frontend && npm run dev
+```
+
+**Note:** Without Redis, uploads still work but ingestion runs synchronously (blocks until complete).
 
 ### Environment variables
 - `VITE_API_URL=http://localhost:8000` for the frontend to reach the backend
@@ -154,19 +182,36 @@ docker-compose logs -f backend
 - If GPU is unavailable, set `model.n_gpu_layers: 0` in `config.yaml`
 
 ### Quickstart
-```
+```bash
 # 1) Start backend and frontend (two terminals)
 source .venv/bin/activate && cd app/backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 cd app/frontend && npm run dev
 
-# 2) Load sample data
-bash scripts/load_sample_data.sh
+# 2) Open http://localhost:5173 and use the Upload button to add a project folder
 
-# 3) Ingest documents (demo)
-python scripts/ingest_cli.py --project demo_project
+# 3) Query via CLI (bypasses LLM, shows raw retrieval)
+python app/scripts/debug_query.py --query "pipe diameter" --project demo_project
+```
 
-# 4) Query via CLI
-python scripts/debug_query.py --query "pipe diameter" --project demo_project
+## Project Management
+### List Projects
+```bash
+python app/scripts/delete_project.py --list
+```
+Shows projects on filesystem and in ChromaDB with chunk counts.
+
+### Delete a Project
+```bash
+# Dry run (see what would be deleted)
+python app/scripts/delete_project.py "Project Name" --dry-run
+
+# Actually delete (filesystem + ChromaDB)
+python app/scripts/delete_project.py "Project Name"
+```
+
+### Debug ChromaDB
+```bash
+python app/scripts/debug_chromadb.py
 ```
 
 ## Ingestion Workflows
@@ -181,75 +226,162 @@ python scripts/debug_query.py --query "pipe diameter" --project demo_project
 python scripts/ingest_cli.py --project <project_id>
 ```
 
+### Async Ingestion (Recommended for Large Projects)
+For projects with many files, use the async ingestion endpoint that processes in the background:
+
+1. **Start Redis** (required for job queue):
+```bash
+# Option 1: Docker
+docker run -d -p 6379:6379 redis
+
+# Option 2: System package (Ubuntu/Debian)
+sudo apt install redis-server && redis-server
+```
+
+2. **Start RQ Worker** (in a separate terminal):
+```bash
+source .venv/bin/activate
+python app/scripts/run_worker.py
+```
+
+3. **Upload and Ingest**:
+- Frontend: Use the Upload page - it automatically uses async ingestion with real-time progress
+- API: `POST /api/v1/projects/{project_id}/ingest/async` returns immediately with a `job_id`
+- Poll `GET /api/v1/jobs/{job_id}` for progress updates
+
+**Job Queue API Endpoints:**
+- `GET /api/v1/jobs/{job_id}` — Get job status and progress
+- `POST /api/v1/jobs/{job_id}/cancel` — Cancel a queued job
+- `GET /api/v1/jobs` — List all jobs with optional filtering
+- `GET /api/v1/jobs/queue/stats` — Queue statistics
+- `GET /api/v1/jobs/queue/health` — Health check
+
+**Fallback Mode:** If Redis is not available, ingestion runs synchronously (blocking). The frontend will still work but won't show real-time progress.
+
 ### Ingestion reports
 - Stored under `data/logs/ingest_report_{project_id}.json`
 - Includes document counts, errors, duplicates, and chunk statistics
 
 ## Querying the System
-### User-scoped queries
-- Provide `employee_id` to filter results to that employee’s project history (Ajera integration)
-- If no documents match, AAA returns project metadata from Ajera as a fallback
+### Employee-Scoped Queries
+- Select an employee from the dropdown to filter results to their project history
+- Uses Ajera timesheet data (solid coverage: hours worked per project)
+- If no documents match, AAA returns a helpful message about the employee's projects
 
-### API endpoints
-- `GET /api/v1/health` — server readiness and stub-mode status
-- `POST /api/v1/projects/{project_id}/upload` — upload project documents (directory-aware)
-- `POST /api/v1/ingest` — run ingestion for a given `project_id`
-- `POST /api/v1/query` — RAG query; returns `answer`, `citations`, `confidence`, and `stub_mode`
+### API Endpoints
+**Core:**
+- `GET /api/v1/health` — Server readiness and stub-mode status
+- `POST /api/v1/query` — RAG query; returns `answer`, `citations`, `confidence`, `stub_mode`
+- `GET /api/v1/projects` — List indexed projects with document/chunk counts
+
+**Upload & Ingest:**
+- `POST /api/v1/projects/{project_id}/upload` — Upload project documents
+- `POST /api/v1/projects/{project_id}/ingest` — Synchronous ingestion
+- `POST /api/v1/projects/{project_id}/ingest/async` — Async ingestion (returns job_id)
+
+**Job Queue:**
+- `GET /api/v1/jobs/{job_id}` — Get job status and progress
+- `POST /api/v1/jobs/{job_id}/cancel` — Cancel a queued job
+- `GET /api/v1/jobs` — List all jobs
+- `GET /api/v1/jobs/queue/stats` — Queue statistics
+
+**Ajera:**
+- `GET /api/v1/employees` — List employees (from Ajera timesheets)
+- `GET /api/v1/employees/{id}` — Get employee details
+- `GET /api/v1/employees/{id}/projects` — Get employee's project history
+- `GET /api/v1/departments` — List department codes (inferred from file IDs)
 
 ### Citations
-- Mandatory provenance triple: `(project_id, file_path, page, chunk_id)` per result
-- The prompt enforces strict JSON output and Pydantic validation on the backend
+- Mandatory provenance: `(project_id, file_path, page, chunk_id)` per result
+- The prompt enforces strict JSON output; Pydantic validates on the backend
+- Empty citations + `confidence: "low"` when no evidence found (no hallucination)
 
 ## Frontend UI
-- Rebranded to Azurite Archive Assistant (AAA); gradient purple/indigo theme
-- Welcome modal with tips and a help button to reopen
-- SearchPage: Intent-aware empty state with example queries; viewport-filling layout
-- UploadPage: Simplified zero-input directory selection, robust progress feedback (bytes, files, elapsed, ETA, staged processing), and clear success/error states
+- **Simple chat-first interface:** One text box for questions, optional filters
+- **Employee filter:** Dropdown to scope queries to an employee's project history (Ajera timesheets)
+- **Project filter:** Multi-select to limit search to specific indexed projects
+- **Upload page:** Directory picker with batched uploads and async processing progress
+- **Welcome modal:** Tips for new users; help button to reopen
+- **Sticky header/footer:** Always-visible navigation and input
+
+## Retrieval Tuning
+Key levers in `config.yaml` and code:
+
+| Lever | Current | Location |
+|-------|---------|----------|
+| Chunk size | 500 tokens | `config.yaml` |
+| Overlap | 100 tokens | `config.yaml` |
+| top_k | 6 | `config.yaml` |
+| Diversity | max 2/file, 4/family | `indexer.py` |
+| Doc type boost | 0.05 distance reduction | `indexer.py` |
+| Query expansion | 3 synonyms/keyword | `query_expander.py` |
+
+### Debug Retrieval
+```bash
+# See raw retrieval without LLM
+python app/scripts/debug_query.py --query "who was the client" --project "Acomita Day School"
+```
 
 ## Testing & Validation
-```
+```bash
 # All tests
 pytest -v
 
-# Unit tests for chunker
-pytest tests/test_chunker.py -v
+# Retrieval quality tests (vague queries)
+pytest tests/test_retrieval_quality.py -v
 
 # FastAPI query integration tests
 pytest tests/test_query_endpoint.py -v
 
-# Coverage (backend core)
-pytest --cov=app.backend.core
+# Unit tests for chunker
+pytest tests/test_chunker.py -v
 ```
 
+### Retrieval Quality Test Cases
+These should pass (`tests/test_retrieval_quality.py`):
+- `"who was the client"` → returns results, contract in top 2
+- `"summary"` → returns results with distance < 0.5
+- `"what is this project about"` → returns relevant results
+- Diversity: max 2 chunks per file, max 4 from same doc family
+
 ## Troubleshooting
-- Model path missing → Backend logs show `stub_mode: true`; download model or continue in stub mode
-- GPU issues → Set `model.n_gpu_layers: 0` in `config.yaml`
-- OCR fails silently → Ensure `tesseract` is installed; check with `tesseract --version`
-- Chroma telemetry → Disabled by default; ensure no outbound telemetry in production
-- Absolute paths → Verify `config.yaml` paths after moving hosts or container mounts
-- Frontend API URL → Set `VITE_API_URL` to backend address
-- Docker GPU runtime → Requires NVIDIA Container Toolkit
+- **Model path missing** → Backend logs show `stub_mode: true`; download model or continue in stub mode
+- **GPU issues** → Set `model.n_gpu_layers: 0` in `config.yaml`
+- **OCR fails silently** → Ensure `tesseract` is installed; check with `tesseract --version`
+- **Redis not running** → Ingestion works but runs synchronously (no progress updates)
+- **Absolute paths** → Verify `config.yaml` paths after moving hosts or container mounts
+- **Frontend API URL** → Set `VITE_API_URL` to backend address
+- **ChromaDB telemetry warnings** → Cosmetic; doesn't affect functionality
+- **Poor retrieval results** → Use `debug_query.py` to see raw distances; tune chunk size or query expansion
 
 ## Security & Privacy
 - Logs store metadata only (e.g., `chunk_id`, `project_id`, `query`, `elapsed_ms`, `confidence`)
 - Raw document text is never logged
-- User-scoped search prevents cross-project leakage
+- Employee-scoped search prevents cross-project leakage
+- Ajera data loaded from local JSON (no live database connection required)
 
 ## Acceptance Criteria
-- Citations always returned (file + page + chunk_id)
-- Logs contain no raw document text
-- “Not found” response when no evidence (no hallucination)
-- Unit tests for core logic (70%+ coverage target)
-- Integration test for API endpoint
-- Works in stub mode (CI/CD friendly)
+- [x] Citations always returned (file + page + chunk_id)
+- [x] Logs contain no raw document text
+- [x] "Not found" response when no evidence (no hallucination)
+- [x] Works in stub mode (CI/CD friendly)
+- [x] Async job queue for large uploads
+- [x] Employee filter using Ajera timesheets
+- [x] Query expansion for vague queries
+- [x] Diversity filtering (no duplicate citations)
+- [ ] Graceful "I couldn't find that" messaging (in progress)
 
 ## Roadmap
-- Real-time ingestion stage streaming (SSE/WebSockets)
+- ~~Async ingestion job queue~~ ✓ Implemented with Redis Queue (RQ)
+- ~~Employee-scoped filtering~~ ✓ Using Ajera timesheet data
+- ~~Query expansion~~ ✓ Synonym expansion and doc-type hints
+- Job recovery UI (list/resume jobs after tab close)
 - PDF citation previews in the UI
-- More precise token counting (migrate to `tiktoken`)
-- Expanded normalization (units, dates) for richer search facets
+- Ajera project linking wizard (manual mapping for non-matching folder names)
+- Parallel PDF extraction for faster ingestion
 
 ## References
 - `DECISIONS.md` — Architectural decisions and tradeoffs
-- `CHANGELOG.md` — Release notes (latest: 0.2.0, rebranding and UX overhaul)
+- `CHANGELOG.md` — Release notes
 - `INGESTION_CHECKLIST.md` — Operational checklist for new projects
+- `.github/copilot-instructions.md` — AI coding agent context

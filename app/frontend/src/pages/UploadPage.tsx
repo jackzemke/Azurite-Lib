@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -16,6 +16,23 @@ interface ProjectInfo {
   detectedId?: string
 }
 
+interface JobStatus {
+  job_id: string
+  state: 'queued' | 'started' | 'processing' | 'finished' | 'failed' | 'cancelled' | 'unknown'
+  project_id?: string
+  progress: number
+  message: string
+  files_total: number
+  files_processed: number
+  chunks_created: number
+  errors: string[]
+  created_at?: string
+  started_at?: string
+  ended_at?: string
+  duration_seconds?: number
+  result?: any
+}
+
 interface UploadProgress {
   phase: 'preparing' | 'uploading' | 'processing'
   filesUploaded: number
@@ -28,6 +45,11 @@ interface UploadProgress {
   startTime: number
   processingStage: string
   elapsedSeconds: number
+  // New async fields
+  jobId?: string
+  jobProgress: number
+  jobMessage: string
+  chunksCreated: number
 }
 
 export default function UploadPage({ onClose }: UploadPageProps) {
@@ -45,12 +67,18 @@ export default function UploadPage({ onClose }: UploadPageProps) {
     totalBatches: 0,
     startTime: 0,
     processingStage: '',
-    elapsedSeconds: 0
+    elapsedSeconds: 0,
+    jobId: undefined,
+    jobProgress: 0,
+    jobMessage: '',
+    chunksCreated: 0
   })
   const [result, setResult] = useState<{ success: boolean; message: string; details?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Elapsed time timer
   useEffect(() => {
     if (step === 'uploading' || step === 'processing') {
       timerRef.current = setInterval(() => {
@@ -64,6 +92,56 @@ export default function UploadPage({ onClose }: UploadPageProps) {
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [step])
+
+  // Poll job status
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const response = await axios.get<JobStatus>(`${API_URL}/api/v1/jobs/${jobId}`)
+      const status = response.data
+
+      setProgress(prev => ({
+        ...prev,
+        jobProgress: status.progress,
+        jobMessage: status.message,
+        filesUploaded: status.files_processed,
+        totalFiles: status.files_total,
+        chunksCreated: status.chunks_created
+      }))
+
+      if (status.state === 'finished') {
+        // Job completed successfully
+        if (pollRef.current) clearInterval(pollRef.current)
+        const totalTime = status.duration_seconds || progress.elapsedSeconds
+        setResult({
+          success: true,
+          message: `Indexed "${projectInfo?.folderName}"`,
+          details: `${status.files_processed} docs • ${status.chunks_created} chunks • ${formatTime(Math.round(totalTime))}`
+        })
+        setStep('complete')
+      } else if (status.state === 'failed') {
+        // Job failed
+        if (pollRef.current) clearInterval(pollRef.current)
+        setResult({
+          success: false,
+          message: 'Processing failed',
+          details: status.errors.length > 0 ? status.errors[0] : status.message
+        })
+        setStep('error')
+      } else if (status.state === 'cancelled') {
+        if (pollRef.current) clearInterval(pollRef.current)
+        setResult({
+          success: false,
+          message: 'Job was cancelled',
+          details: 'The ingestion job was cancelled.'
+        })
+        setStep('error')
+      }
+      // Otherwise keep polling (queued, started, processing)
+    } catch (err: any) {
+      console.error('Error polling job status:', err)
+      // Don't stop polling on transient errors
+    }
+  }, [projectInfo])
 
   const formatTime = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`
@@ -83,11 +161,6 @@ export default function UploadPage({ onClose }: UploadPageProps) {
       const remaining = (progress.totalBytes - progress.bytesUploaded) / rate
       if (remaining < 60) return `~${Math.ceil(remaining)}s left`
       return `~${Math.ceil(remaining / 60)}m left`
-    }
-    if (progress.phase === 'processing' && progress.elapsedSeconds > 5) {
-      const estTotal = progress.totalFiles * 3
-      const remaining = Math.max(0, estTotal - progress.elapsedSeconds)
-      if (remaining > 0) return `~${Math.ceil(remaining / 60)}m left`
     }
     return ''
   }
@@ -127,13 +200,30 @@ export default function UploadPage({ onClose }: UploadPageProps) {
     const BATCH_SIZE = 5
     const totalBatches = Math.ceil(files.length / BATCH_SIZE)
     setStep('uploading')
-    setProgress({ phase: 'uploading', filesUploaded: 0, totalFiles: files.length, bytesUploaded: 0, totalBytes, currentFile: files[0]?.name || '', currentBatch: 1, totalBatches, startTime, processingStage: '', elapsedSeconds: 0 })
+    setProgress({ 
+      phase: 'uploading', 
+      filesUploaded: 0, 
+      totalFiles: files.length, 
+      bytesUploaded: 0, 
+      totalBytes, 
+      currentFile: files[0]?.name || '', 
+      currentBatch: 1, 
+      totalBatches, 
+      startTime, 
+      processingStage: '', 
+      elapsedSeconds: 0,
+      jobId: undefined,
+      jobProgress: 0,
+      jobMessage: '',
+      chunksCreated: 0
+    })
     
     try {
       const projectId = projectInfo.folderName
       let uploadedCount = 0
       let bytesUploaded = 0
       
+      // Phase 1: Upload files in batches
       for (let i = 0; i < files.length; i += BATCH_SIZE) {
         const batch = files.slice(i, i + BATCH_SIZE)
         const batchNum = Math.floor(i / BATCH_SIZE) + 1
@@ -148,7 +238,11 @@ export default function UploadPage({ onClose }: UploadPageProps) {
           timeout: 300000,
           onUploadProgress: (e) => {
             const batchProgress = e.loaded / (e.total || batchBytes)
-            setProgress(prev => ({ ...prev, bytesUploaded: bytesUploaded + (batchBytes * batchProgress), currentFile: batch[Math.min(Math.floor(batchProgress * batch.length), batch.length - 1)]?.name || prev.currentFile }))
+            setProgress(prev => ({ 
+              ...prev, 
+              bytesUploaded: bytesUploaded + (batchBytes * batchProgress), 
+              currentFile: batch[Math.min(Math.floor(batchProgress * batch.length), batch.length - 1)]?.name || prev.currentFile 
+            }))
           }
         })
         uploadedCount += batch.length
@@ -156,35 +250,77 @@ export default function UploadPage({ onClose }: UploadPageProps) {
         setProgress(prev => ({ ...prev, filesUploaded: uploadedCount, bytesUploaded }))
       }
       
+      // Phase 2: Start async ingestion
       setStep('processing')
       const procStart = Date.now()
-      setProgress(prev => ({ ...prev, phase: 'processing', processingStage: 'Initializing...', startTime: procStart, elapsedSeconds: 0 }))
+      setProgress(prev => ({ 
+        ...prev, 
+        phase: 'processing', 
+        processingStage: 'Queuing ingestion job...', 
+        startTime: procStart, 
+        elapsedSeconds: 0,
+        jobProgress: 0,
+        filesUploaded: 0,
+        totalFiles: files.length
+      }))
       
-      const stages = ['Scanning documents...', 'Extracting text...', 'Processing content...', 'Generating embeddings...', 'Building index...', 'Optimizing...', 'Finalizing...']
-      let idx = 0
-      const stageInt = setInterval(() => { idx = Math.min(idx + 1, stages.length - 1); setProgress(prev => ({ ...prev, processingStage: stages[idx] })) }, 4000)
+      // Call async ingest endpoint
+      const ingestResponse = await axios.post(
+        `${API_URL}/api/v1/projects/${encodeURIComponent(projectId)}/ingest/async`,
+        {},
+        { timeout: 30000 }
+      )
       
-      const response = await axios.post(`${API_URL}/api/v1/projects/${encodeURIComponent(projectId)}/ingest`, {}, { timeout: 1800000 })
-      clearInterval(stageInt)
+      const jobId = ingestResponse.data.job_id
+      setProgress(prev => ({ ...prev, jobId, processingStage: 'Processing queued...' }))
       
-      setResult({ success: true, message: `Indexed "${projectInfo.folderName}"`, details: `${response.data.files_processed} docs • ${response.data.chunks_created} chunks • ${formatTime(Math.floor((Date.now() - startTime) / 1000))}` })
-      setStep('complete')
+      // Start polling for job status
+      pollRef.current = setInterval(() => {
+        pollJobStatus(jobId)
+      }, 2000) // Poll every 2 seconds
+      
+      // Initial poll
+      pollJobStatus(jobId)
+      
     } catch (err: any) {
-      setResult({ success: false, message: err.response?.data?.detail || 'Processing failed.', details: err.code === 'ECONNABORTED' ? 'Request timed out.' : 'Check files and try again.' })
+      if (pollRef.current) clearInterval(pollRef.current)
+      setResult({ 
+        success: false, 
+        message: err.response?.data?.detail || 'Processing failed.', 
+        details: err.code === 'ECONNABORTED' ? 'Request timed out.' : 'Check files and try again.' 
+      })
       setStep('error')
     }
   }
 
   const handleReset = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
     setStep('select')
     setFiles([])
     setProjectInfo(null)
-    setProgress({ phase: 'preparing', filesUploaded: 0, totalFiles: 0, bytesUploaded: 0, totalBytes: 0, currentFile: '', currentBatch: 0, totalBatches: 0, startTime: 0, processingStage: '', elapsedSeconds: 0 })
+    setProgress({ 
+      phase: 'preparing', 
+      filesUploaded: 0, 
+      totalFiles: 0, 
+      bytesUploaded: 0, 
+      totalBytes: 0, 
+      currentFile: '', 
+      currentBatch: 0, 
+      totalBatches: 0, 
+      startTime: 0, 
+      processingStage: '', 
+      elapsedSeconds: 0,
+      jobId: undefined,
+      jobProgress: 0,
+      jobMessage: '',
+      chunksCreated: 0
+    })
     setResult(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const pct = progress.totalBytes > 0 ? Math.round((progress.bytesUploaded / progress.totalBytes) * 100) : 0
+  const uploadPct = progress.totalBytes > 0 ? Math.round((progress.bytesUploaded / progress.totalBytes) * 100) : 0
+  const processingPct = Math.round(progress.jobProgress)
 
   return (
     <div className="upload-page">
@@ -230,8 +366,8 @@ export default function UploadPage({ onClose }: UploadPageProps) {
           <div className="progress-container">
             <div className="progress-icon uploading">☁️</div>
             <h3>Uploading Documents</h3>
-            <div className="progress-bar-container"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>
-            <div className="progress-stats"><span>{pct}%</span><span>•</span><span>{progress.filesUploaded}/{progress.totalFiles} files</span><span>•</span><span>{formatBytes(progress.bytesUploaded)}/{formatBytes(progress.totalBytes)}</span></div>
+            <div className="progress-bar-container"><div className="progress-bar" style={{ width: `${uploadPct}%` }} /></div>
+            <div className="progress-stats"><span>{uploadPct}%</span><span>•</span><span>{progress.filesUploaded}/{progress.totalFiles} files</span><span>•</span><span>{formatBytes(progress.bytesUploaded)}/{formatBytes(progress.totalBytes)}</span></div>
             <div className="progress-current"><span className="label">📄</span><span className="value">{progress.currentFile}</span></div>
             <div className="progress-time"><span>⏱️ {formatTime(progress.elapsedSeconds)}</span><span>{estimateTimeRemaining()}</span></div>
             <div className="activity-pulse"><div className="pulse-dot"></div><span>Batch {progress.currentBatch}/{progress.totalBatches}</span></div>
@@ -244,11 +380,27 @@ export default function UploadPage({ onClose }: UploadPageProps) {
           <div className="progress-container">
             <div className="progress-icon processing">⚙️</div>
             <h3>Processing Documents</h3>
-            <div className="progress-bar-container"><div className="progress-bar indeterminate" /></div>
-            <p className="progress-text">{progress.processingStage}</p>
-            <div className="progress-time"><span>⏱️ {formatTime(progress.elapsedSeconds)}</span><span>{estimateTimeRemaining()}</span></div>
-            <div className="activity-pulse"><div className="pulse-dot"></div><span>Processing {progress.totalFiles} documents</span></div>
-            <p className="progress-hint">This may take several minutes. Window will update when done.</p>
+            {processingPct > 0 ? (
+              <>
+                <div className="progress-bar-container"><div className="progress-bar" style={{ width: `${processingPct}%` }} /></div>
+                <div className="progress-stats">
+                  <span>{processingPct}%</span>
+                  <span>•</span>
+                  <span>{progress.filesUploaded}/{progress.totalFiles} files</span>
+                  {progress.chunksCreated > 0 && <><span>•</span><span>{progress.chunksCreated} chunks</span></>}
+                </div>
+              </>
+            ) : (
+              <div className="progress-bar-container"><div className="progress-bar indeterminate" /></div>
+            )}
+            <p className="progress-text">{progress.jobMessage || progress.processingStage}</p>
+            <div className="progress-time"><span>⏱️ {formatTime(progress.elapsedSeconds)}</span></div>
+            <div className="activity-pulse"><div className="pulse-dot"></div><span>Processing in background</span></div>
+            <p className="progress-hint">
+              {progress.jobId 
+                ? "You can close this window - processing will continue in the background." 
+                : "Queuing job..."}
+            </p>
           </div>
         </div>
       )}
