@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 import logging
 
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -15,17 +17,17 @@ router = APIRouter()
 async def get_document(project_id: str, file_path: str):
     """
     Serve a document file for viewing.
-    
+
     Args:
         project_id: Project ID
         file_path: Relative path to file within project directory
-    
+
     Returns:
         File response with appropriate content type
     """
     try:
         # Construct absolute path
-        base_dir = Path("/home/jack/lib/project-library/data/raw_docs")
+        base_dir = settings.raw_docs_path
         full_path = base_dir / project_id / file_path
         
         # Security: ensure path doesn't escape project directory

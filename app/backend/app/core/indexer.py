@@ -44,7 +44,10 @@ class Indexer:
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},  # Use cosine similarity
+            metadata={
+                "hnsw:space": "cosine",
+                "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+            },
         )
 
         logger.info(f"Collection '{collection_name}' ready. Count: {self.collection.count()}")
@@ -219,52 +222,78 @@ class Indexer:
     ) -> List[Dict]:
         """
         Apply MMR-style diversity to chunk results.
-        
+
         Ensures we don't return too many chunks from the same document,
         while still prioritizing relevance (lower distance = better).
-        
+        Uses adaptive limits: if a chunk's score is within 20% of the best
+        chunk's score, the per-document limit is relaxed.
+
         Also deduplicates "sibling" documents (e.g., multiple invoices)
         by detecting similar file name patterns.
-        
+
         Args:
             chunks: List of chunks sorted by relevance
             top_k: Target number of results
-            max_per_document: Max chunks per document
-            
+            max_per_document: Max chunks per document (relaxed for high-quality matches)
+
         Returns:
             Diverse subset of chunks
         """
         selected = []
         doc_counts = {}  # file_path -> count
         doc_family_counts = {}  # normalized filename pattern -> count
-        
+
+        # Determine best score for adaptive threshold.
+        # Support both bi-encoder distance (lower=better) and rerank_score (higher=better).
+        best_score = None
+        use_rerank = "rerank_score" in chunks[0] if chunks else False
+        if chunks:
+            if use_rerank:
+                best_score = chunks[0].get("rerank_score", 0)
+            else:
+                best_score = chunks[0].get("distance", 0)
+
         for chunk in chunks:
             if len(selected) >= top_k:
                 break
-                
+
             file_path = chunk["metadata"].get("file_path", "unknown")
             file_basename = chunk["metadata"].get("file_basename", "")
-            
+
+            # Adaptive limit: relax max_per_document for chunks close to best score
+            effective_max = max_per_document
+            if best_score is not None:
+                if use_rerank:
+                    score = chunk.get("rerank_score", 0)
+                    # Within 20% of best rerank score -> allow extra
+                    if best_score > 0 and score >= best_score * 0.8:
+                        effective_max = max_per_document + 1
+                else:
+                    score = chunk.get("distance", 0)
+                    # Within 20% of best distance -> allow extra
+                    if best_score > 0 and score <= best_score * 1.2:
+                        effective_max = max_per_document + 1
+
             # Check per-file limit
             current_count = doc_counts.get(file_path, 0)
-            if current_count >= max_per_document:
+            if current_count >= effective_max:
                 continue
-            
+
             # Check for "sibling" documents (e.g., Invoice #01, Invoice #02)
             # Normalize filename to detect family
             doc_family = self._get_doc_family(file_basename)
             family_count = doc_family_counts.get(doc_family, 0)
-            
+
             # Allow max 2 documents from same family (e.g., 2 invoices total)
             max_per_family = 2
             if family_count >= max_per_family:
                 logger.debug(f"Skipping '{file_basename}' - family '{doc_family}' already has {family_count} docs")
                 continue
-            
+
             selected.append(chunk)
             doc_counts[file_path] = current_count + 1
             doc_family_counts[doc_family] = family_count + 1
-        
+
         # If we haven't filled top_k yet, add remaining chunks
         # (better to have some results than too few)
         if len(selected) < top_k:
@@ -273,7 +302,7 @@ class Indexer:
                     selected.append(chunk)
                     if len(selected) >= top_k:
                         break
-        
+
         logger.debug(f"Diversity filter: {len(chunks)} candidates -> {len(selected)} selected from {len(doc_counts)} documents, {len(doc_family_counts)} families")
         return selected
     

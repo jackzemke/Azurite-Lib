@@ -1,3 +1,23 @@
-{"query": "How deep did we dig the drainage ditch in November 2022 at Las Cruces City College?", "expected_answer": "3.5 feet", "expected_sources": ["drainage", "excavation", "november"]}
-{"query": "Who was the contractor for subgrade compaction in Project X?", "expected_answer": "ABC Construction", "expected_sources": ["contractor", "subgrade", "compaction"]}
-{"query": "What was the specified pipe diameter for drainage at Area B?", "expected_answer": "12 inches", "expected_sources": ["pipe", "diameter", "drainage", "area_b"]}
+{"query": "How deep did we dig the drainage ditch in November 2022 at Las Cruces City College?", "expected_answer": "3.5 feet", "expected_sources": ["drainage", "excavation", "november"], "query_type": "measurement"}
+{"query": "Who was the contractor for subgrade compaction in Project X?", "expected_answer": "ABC Construction", "expected_sources": ["contractor", "subgrade", "compaction"], "query_type": "personnel"}
+{"query": "What was the specified pipe diameter for drainage at Area B?", "expected_answer": "12 inches", "expected_sources": ["pipe", "diameter", "drainage", "area_b"], "query_type": "measurement"}
+{"query": "What is the purpose of this project?", "expected_answer": "environmental site assessment", "expected_sources": ["proposal", "scope", "report"], "query_type": "overview"}
+{"query": "Give me a summary of the project scope", "expected_answer": "scope of work", "expected_sources": ["proposal", "scope", "contract"], "query_type": "overview"}
+{"query": "What services did SMA provide?", "expected_answer": "environmental consulting", "expected_sources": ["proposal", "scope", "report"], "query_type": "overview"}
+{"query": "Describe the project objectives", "expected_answer": "objectives", "expected_sources": ["proposal", "report", "scope"], "query_type": "overview"}
+{"query": "What was the overall project budget?", "expected_answer": "budget", "expected_sources": ["proposal", "contract", "invoice"], "query_type": "overview"}
+{"query": "Who was the project manager?", "expected_answer": "manager", "expected_sources": ["proposal", "contract", "report"], "query_type": "personnel"}
+{"query": "Who was the client for this project?", "expected_answer": "client", "expected_sources": ["contract", "proposal", "cover"], "query_type": "personnel"}
+{"query": "Who worked on this project?", "expected_answer": "team", "expected_sources": ["proposal", "report"], "query_type": "personnel"}
+{"query": "Which subcontractors were involved?", "expected_answer": "subcontractor", "expected_sources": ["contract", "proposal", "report"], "query_type": "personnel"}
+{"query": "Who prepared this report?", "expected_answer": "prepared by", "expected_sources": ["report", "cover"], "query_type": "personnel"}
+{"query": "Where is the project site located?", "expected_answer": "location", "expected_sources": ["report", "proposal", "cover"], "query_type": "location"}
+{"query": "What is the site address?", "expected_answer": "address", "expected_sources": ["report", "proposal", "assessment"], "query_type": "location"}
+{"query": "What city and state is the project in?", "expected_answer": "city", "expected_sources": ["report", "proposal", "cover"], "query_type": "location"}
+{"query": "What was the total soil volume excavated?", "expected_answer": "cubic yards", "expected_sources": ["report", "excavation"], "query_type": "measurement"}
+{"query": "What were the groundwater monitoring results?", "expected_answer": "groundwater", "expected_sources": ["report", "monitoring", "assessment"], "query_type": "measurement"}
+{"query": "What contaminant concentrations were detected?", "expected_answer": "concentration", "expected_sources": ["report", "assessment", "sampling"], "query_type": "measurement"}
+{"query": "How much did the project cost?", "expected_answer": "cost", "expected_sources": ["invoice", "proposal", "contract"], "query_type": "cost"}
+{"query": "What was the total fee for Phase I ESA?", "expected_answer": "fee", "expected_sources": ["proposal", "contract", "invoice"], "query_type": "cost"}
+{"query": "Which projects involved asbestos surveys?", "expected_answer": "asbestos", "expected_sources": ["survey", "assessment", "report"], "query_type": "cross_project"}
+{"query": "Compare the scope of work across our Las Cruces projects", "expected_answer": "scope", "expected_sources": ["proposal", "report", "scope"], "query_type": "cross_project"}

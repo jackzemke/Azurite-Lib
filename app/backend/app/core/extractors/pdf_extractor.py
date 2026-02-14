@@ -1,19 +1,64 @@
 """
 PDF Text Extractor using pdfplumber.
 
-Handles digital PDFs with text extraction and falls back to OCR for scanned PDFs.
+Handles digital PDFs with text extraction, table extraction (as Markdown),
+and falls back to OCR for scanned PDFs.
 """
 
 import pdfplumber
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+def _table_to_markdown(table: List[List]) -> str:
+    """Convert a pdfplumber table (list of rows) to Markdown format.
+
+    Args:
+        table: List of rows, where each row is a list of cell values.
+               First row is treated as headers.
+
+    Returns:
+        Markdown table string, or empty string if table is empty/invalid.
+    """
+    if not table or len(table) < 2:
+        return ""
+
+    # Clean cells: replace None with empty string, strip whitespace
+    cleaned = []
+    for row in table:
+        cleaned.append([str(cell).strip() if cell is not None else "" for cell in row])
+
+    # Skip tables where all cells are empty
+    if all(all(c == "" for c in row) for row in cleaned):
+        return ""
+
+    # Determine column count from the widest row
+    n_cols = max(len(row) for row in cleaned)
+
+    # Pad rows to uniform width
+    for row in cleaned:
+        while len(row) < n_cols:
+            row.append("")
+
+    # Build header
+    header = cleaned[0]
+    separator = ["---"] * n_cols
+    body = cleaned[1:]
+
+    lines = []
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("| " + " | ".join(separator) + " |")
+    for row in body:
+        lines.append("| " + " | ".join(row) + " |")
+
+    return "\n".join(lines)
+
+
 class PDFExtractor:
-    """Extract text and metadata from PDF files."""
+    """Extract text and tables from PDF files."""
 
     def __init__(self, min_text_length: int = 100):
         """
@@ -27,7 +72,11 @@ class PDFExtractor:
 
     def extract(self, file_path: Path) -> Dict:
         """
-        Extract text from PDF, page by page.
+        Extract text and tables from PDF, page by page.
+
+        Tables are detected via pdfplumber.extract_tables() and converted to
+        Markdown format, then appended to the page text. This preserves table
+        structure through the chunking pipeline.
 
         Args:
             file_path: Path to PDF file
@@ -48,14 +97,33 @@ class PDFExtractor:
                 for i, page in enumerate(pdf.pages):
                     page_num = i + 1
                     text = page.extract_text() or ""
-                    
+
+                    # Extract tables and convert to Markdown
+                    tables = page.extract_tables() or []
+                    table_markdowns = []
+                    for table in tables:
+                        md = _table_to_markdown(table)
+                        if md:
+                            table_markdowns.append(md)
+
+                    # Combine text and tables
+                    # Tables are appended after the page text with a separator
+                    if table_markdowns:
+                        tables_block = "\n\n".join(table_markdowns)
+                        if text.strip():
+                            combined = f"{text.strip()}\n\n{tables_block}"
+                        else:
+                            combined = tables_block
+                    else:
+                        combined = text.strip()
+
                     # Extract words with bounding boxes (for highlighting)
                     words = page.extract_words()
                     bbox_available = len(words) > 0
 
                     pages.append({
                         "page_num": page_num,
-                        "text": text.strip(),
+                        "text": combined,
                         "bbox_available": bbox_available,
                         "width": page.width,
                         "height": page.height,
@@ -109,7 +177,3 @@ class PDFExtractor:
         except Exception as e:
             logger.error(f"Failed to extract bbox from {file_path} page {page_num}: {e}")
             return []
-
-
-# TODO: Consider adding table extraction with pdfplumber.extract_tables()
-# TODO: Handle encrypted PDFs with password parameter

@@ -10,6 +10,7 @@ import logging
 import time
 from datetime import datetime
 
+from ..config import settings
 from ..schemas.models import IngestRequest, IngestResponse
 from ..core.extractors.pdf_extractor import PDFExtractor
 from ..core.extractors.docx_extractor import DOCXExtractor
@@ -21,14 +22,6 @@ from ..core.indexer import Indexer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def get_config():
-    """Load config (simplified - would use dependency injection in production)."""
-    import yaml
-    config_path = Path("/home/jack/lib/project-library/app/backend/config.yaml")
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 @router.post("/projects/{project_id}/ingest", response_model=IngestResponse)
@@ -49,10 +42,8 @@ async def ingest_project(
     start_time = time.time()
 
     try:
-        config = get_config()
-
         # Get raw docs directory
-        raw_docs_dir = Path(config["paths"]["raw_docs"]) / project_id
+        raw_docs_dir = settings.raw_docs_path / project_id
         if not raw_docs_dir.exists():
             raise HTTPException(status_code=404, detail=f"Project directory not found: {raw_docs_dir}")
 
@@ -75,21 +66,21 @@ async def ingest_project(
         logger.info(f"Ingesting {len(files_to_process)} files for project {project_id}")
 
         # Initialize components
-        pdf_extractor = PDFExtractor(min_text_length=config["ocr"]["min_text_length"])
+        pdf_extractor = PDFExtractor(min_text_length=settings.ocr_min_text_length)
         docx_extractor = DOCXExtractor()
-        image_ocr = ImageOCR(lang=config["ocr"]["tesseract_lang"])
+        image_ocr = ImageOCR(lang=settings.ocr_tesseract_lang)
         normalizer = Normalizer()
         chunker = Chunker(
-            chunk_size_tokens=config["chunking"]["chunk_size_tokens"],
-            chunk_overlap_tokens=config["chunking"]["chunk_overlap_tokens"],
-            semantic=config["chunking"]["semantic"],
+            chunk_size_tokens=settings.chunking_chunk_size_tokens,
+            chunk_overlap_tokens=settings.chunking_chunk_overlap_tokens,
+            semantic=settings.chunking_semantic,
         )
         embedder = Embedder(
-            model_name=config["embedding"]["model_name"],
-            batch_size=config["embedding"]["batch_size"],
+            model_name=settings.embedding_model_name,
+            batch_size=settings.embedding_batch_size,
         )
         indexer = Indexer(
-            chroma_db_path=Path(config["paths"]["chroma_db"]),
+            chroma_db_path=settings.chroma_db_path,
         )
 
         # Process files
@@ -127,7 +118,7 @@ async def ingest_project(
                 )
 
                 # Save chunks to disk
-                chunks_dir = Path(config["paths"]["chunks"]) / project_id
+                chunks_dir = settings.chunks_path / project_id
                 chunks_dir.mkdir(parents=True, exist_ok=True)
 
                 for chunk in chunks:
@@ -152,7 +143,7 @@ async def ingest_project(
             embeddings = embedder.embed_chunks(all_chunks)
 
             # Save embeddings
-            embeddings_file = Path(config["paths"]["embeddings"]) / f"{project_id}.parquet"
+            embeddings_file = settings.embeddings_path / f"{project_id}.parquet"
             embedder.save_embeddings(embeddings, embeddings_file)
 
             # Index in Chroma
@@ -171,7 +162,7 @@ async def ingest_project(
             "timestamp": datetime.utcnow().isoformat() + 'Z',
         }
 
-        report_file = Path(config["paths"]["chunks"]).parent / "logs" / f"ingest_report_{project_id}.json"
+        report_file = settings.chunks_path.parent / "logs" / f"ingest_report_{project_id}.json"
         report_file.parent.mkdir(parents=True, exist_ok=True)
         with open(report_file, 'w') as f:
             json.dump(report, f, indent=2)

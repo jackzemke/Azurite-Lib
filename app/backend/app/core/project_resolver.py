@@ -10,6 +10,7 @@ import logging
 from .project_mapper import get_project_mapper, ProjectMapper
 from .ajera_loader import get_ajera_data, AjeraData
 from .filesystem_scanner import FileSystemProjectScanner
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,25 +18,25 @@ logger = logging.getLogger(__name__)
 class UnifiedProjectResolver:
     """
     Resolves project identifiers across multiple data sources:
-    
+
     1. File System (raw_docs folders)
        - folder_name: "Acomita Day School"
        - file_id: Extracted from folder names (e.g., "1430152")
-       
+
     2. Ajera Time Tracking (ajera_unified.json)
        - project_key: Ajera internal ID for time tracking
        - Has employee-project mappings and hours
-       
+
     3. Project Mapping CSV (project_lookup.csv)
        - Maps project_key <-> file_id
        - Has project descriptions/names
-    
+
     Use Cases:
     - Given an employee ID, find all their projects in the file system
     - Given a folder name, find who worked on it
     - Given a project name, resolve to file system location
     """
-    
+
     def __init__(
         self,
         mapper: Optional[ProjectMapper] = None,
@@ -44,17 +45,17 @@ class UnifiedProjectResolver:
     ):
         """
         Initialize with data sources.
-        
+
         If not provided, will use global instances.
-        
+
         Args:
             mapper: ProjectMapper instance
-            ajera: AjeraData instance  
+            ajera: AjeraData instance
             raw_docs_path: Path to raw_docs for file system scanning
         """
         self._mapper = mapper
         self._ajera = ajera
-        self._raw_docs_path = raw_docs_path or "/home/jack/lib/project-library/data/raw_docs"
+        self._raw_docs_path = raw_docs_path or str(settings.raw_docs_path)
         self._fs_scanner: Optional[FileSystemProjectScanner] = None
         self._fs_scanned = False
     

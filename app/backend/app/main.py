@@ -4,10 +4,10 @@ FastAPI Main Application.
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
 import logging
-from pathlib import Path
 
+from .config import settings
 from .api import upload, ingest, ingest_v2, query, health, ajera, jobs, admin
 from .core.ajera_loader import init_ajera_data
 from .core.project_mapper import init_project_mapper
@@ -15,7 +15,7 @@ from .core.project_resolver import init_project_resolver
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG if settings.debug_mode else logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
 
@@ -23,37 +23,73 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Project Library API",
+    title="Azurite Archive Assistant API",
     description="Citation-aware Q&A system for engineering project documents",
-    version="0.1.0",
+    version="0.3.0",
 )
 
 # CORS middleware (for frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to specific origins
+    allow_origins=[settings.frontend_url] if settings.frontend_url else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize Ajera data and Project Mapper on startup
+
+# Optional API key middleware
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """Require X-API-Key header when AAA_API_KEY is configured."""
+    # Skip auth if no API key configured (dev mode)
+    if not settings.api_key:
+        return await call_next(request)
+
+    # Skip auth for docs, openapi schema, root, and health
+    skip_paths = {"/", "/docs", "/redoc", "/openapi.json", "/api/v1/health"}
+    if request.url.path in skip_paths:
+        return await call_next(request)
+
+    # Check API key
+    provided_key = request.headers.get("X-API-Key", "")
+    if provided_key != settings.api_key:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing API key"},
+        )
+
+    return await call_next(request)
+
+
+# Initialize services on startup
 @app.on_event("startup")
 async def startup_event():
-    """Initialize Ajera data and project mappings on app startup."""
+    """Initialize Ajera data, project mappings, and core services on app startup."""
+    if settings.api_key:
+        logger.info("API key authentication enabled")
+    else:
+        logger.info("API key authentication disabled (dev mode)")
+
     # Initialize Ajera employee-project time tracking data
-    ajera_path = Path("/home/jack/lib/project-library/data/ajera_unified.json")
-    init_ajera_data(str(ajera_path))
-    logger.info("✓ Initialized Ajera data with enriched metadata")
-    
+    ajera_path = settings.ajera_data_path_resolved
+    if ajera_path.exists():
+        init_ajera_data(str(ajera_path))
+        logger.info("Initialized Ajera data with enriched metadata")
+    else:
+        logger.warning(f"Ajera data not found at {ajera_path}, skipping")
+
     # Initialize Project ID mapper (Ajera ProjectKey <-> File System ID)
-    mapper_path = Path("/home/jack/lib/project-library/data/mappings/project_lookup.csv")
-    init_project_mapper(str(mapper_path))
-    logger.info("✓ Initialized Project ID mapper")
-    
+    mapper_path = settings.project_lookup_path_resolved
+    if mapper_path.exists():
+        init_project_mapper(str(mapper_path))
+        logger.info("Initialized Project ID mapper")
+    else:
+        logger.warning(f"Project lookup CSV not found at {mapper_path}, skipping")
+
     # Initialize Unified Project Resolver (combines all sources)
     init_project_resolver()
-    logger.info("✓ Initialized Unified Project Resolver")
+    logger.info("Initialized Unified Project Resolver")
 
 # Include routers
 app.include_router(upload.router, prefix="/api/v1", tags=["upload"])
@@ -76,8 +112,8 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 async def root():
     """Root endpoint."""
     return {
-        "message": "Project Library API",
-        "version": "0.1.0",
+        "message": "Azurite Archive Assistant API",
+        "version": "0.3.0",
         "docs": "/docs",
     }
 

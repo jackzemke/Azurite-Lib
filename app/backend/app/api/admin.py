@@ -11,6 +11,7 @@ Provides:
 import os
 import json
 import asyncio
+import shlex
 import subprocess
 import signal
 import logging
@@ -20,16 +21,18 @@ from typing import Dict, List, Optional, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from pydantic import BaseModel
 
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Track managed processes
 managed_processes: Dict[str, subprocess.Popen] = {}
 
-# Base paths
-DATA_DIR = Path("/home/jack/lib/project-library/data")
+# Paths from centralized config
+DATA_DIR = settings.resolve_path("data")
 LOGS_DIR = DATA_DIR / "logs"
-PROJECT_ROOT = Path("/home/jack/lib/project-library")
+PROJECT_ROOT = settings.base_dir
 
 
 # ============================================================================
@@ -70,26 +73,29 @@ class LogContent(BaseModel):
 SERVICES = {
     "backend": {
         "name": "Backend (FastAPI)",
-        "check_cmd": "curl -s http://localhost:8000/api/v1/health",
-        "start_cmd": "cd /home/jack/lib/project-library/app/backend && source ../../.venv/bin/activate && uvicorn app.main:app --host 127.0.0.1 --port 8000",
+        "check_cmd": ["curl", "-s", "http://localhost:8000/api/v1/health"],
+        "start_cmd": ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+        "start_cwd": str(PROJECT_ROOT / "app" / "backend"),
         "port": 8000,
     },
     "frontend": {
         "name": "Frontend (Vite)",
-        "check_url": "http://localhost:5173",
-        "start_cmd": "cd /home/jack/lib/project-library/app/frontend && npm run dev",
+        "check_cmd": ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:5173"],
+        "start_cmd": ["npm", "run", "dev"],
+        "start_cwd": str(PROJECT_ROOT / "app" / "frontend"),
         "port": 5173,
     },
     "redis": {
         "name": "Redis",
-        "check_cmd": "redis-cli ping",
-        "start_cmd": "redis-server",
+        "check_cmd": ["redis-cli", "ping"],
+        "start_cmd": ["redis-server"],
         "port": 6379,
     },
     "rq_worker": {
         "name": "RQ Worker",
-        "check_cmd": "pgrep -f 'rq worker'",
-        "start_cmd": "cd /home/jack/lib/project-library && source .venv/bin/activate && python app/scripts/run_worker.py",
+        "check_cmd": ["pgrep", "-f", "rq worker"],
+        "start_cmd": ["python", "app/scripts/run_worker.py"],
+        "start_cwd": str(PROJECT_ROOT),
         "port": None,
     },
 }
@@ -143,7 +149,6 @@ async def check_service_status(service_id: str, config: dict) -> ServiceStatus:
         try:
             result = subprocess.run(
                 config["check_cmd"],
-                shell=True,
                 capture_output=True,
                 timeout=5
             )
@@ -160,8 +165,7 @@ async def check_service_status(service_id: str, config: dict) -> ServiceStatus:
     if config.get("port"):
         try:
             result = subprocess.run(
-                f"lsof -i :{config['port']} | grep LISTEN",
-                shell=True,
+                ["lsof", "-i", f":{config['port']}"],
                 capture_output=True,
                 timeout=5
             )
@@ -214,9 +218,9 @@ async def start_service(service_id: str, config: dict) -> dict:
         
         proc = subprocess.Popen(
             config["start_cmd"],
-            shell=True,
             stdout=open(log_file, "a"),
             stderr=subprocess.STDOUT,
+            cwd=config.get("start_cwd"),
             preexec_fn=os.setsid,  # Create new process group
         )
         
@@ -251,8 +255,7 @@ async def stop_service(service_id: str, config: dict) -> dict:
     if config.get("port"):
         try:
             subprocess.run(
-                f"fuser -k {config['port']}/tcp",
-                shell=True,
+                ["fuser", "-k", f"{config['port']}/tcp"],
                 timeout=5
             )
             return {"status": "stopped", "details": f"Killed process on port {config['port']}"}
@@ -421,7 +424,8 @@ async def get_system_info():
     mem = psutil.virtual_memory()
     
     # ChromaDB stats
-    chroma_size = sum(f.stat().st_size for f in (DATA_DIR / "index" / "chroma").rglob("*") if f.is_file()) if (DATA_DIR / "index" / "chroma").exists() else 0
+    chroma_dir = settings.chroma_db_path
+    chroma_size = sum(f.stat().st_size for f in chroma_dir.rglob("*") if f.is_file()) if chroma_dir.exists() else 0
     
     return {
         "hostname": platform.node(),

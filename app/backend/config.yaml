@@ -1,26 +1,27 @@
 model:
-  path: "/home/jack/lib/project-library/data/models/Llama-3.2-3B-Instruct-Q6_K.gguf"
+  path: "data/models/Meta-Llama-3.1-8B-Instruct-Q6_K.gguf"
   n_gpu_layers: 40
   n_threads: 8
-  max_tokens: 512
+  max_tokens: 1024
   temperature: 0.0
+  n_ctx: 8192
 
 embedding:
-  model_name: "all-MiniLM-L6-v2"
+  model_name: "nomic-ai/nomic-embed-text-v1.5"
   batch_size: 32
 
 paths:
-  raw_docs: "/home/jack/lib/project-library/data/raw_docs"
-  ocr: "/home/jack/lib/project-library/data/ocr"
-  text: "/home/jack/lib/project-library/data/text"
-  chunks: "/home/jack/lib/project-library/data/chunks"
-  embeddings: "/home/jack/lib/project-library/data/embeddings"
-  chroma_db: "/home/jack/lib/project-library/data/index/chroma"
+  raw_docs: "data/raw_docs"
+  ocr: "data/ocr"
+  text: "data/text"
+  chunks: "data/chunks"
+  embeddings: "data/embeddings"
+  chroma_db: "data/index/chroma"
 
 logging:
-  queries_log: "/home/jack/lib/project-library/data/logs/queries.log"
-  ingest_report: "/home/jack/lib/project-library/data/logs/ingest_report.json"
-  errors_log: "/home/jack/lib/project-library/data/logs/errors.log"
+  queries_log: "data/logs/queries.log"
+  ingest_report: "data/logs/ingest_report.json"
+  errors_log: "data/logs/errors.log"
   debug_mode: false
 
 ocr:
@@ -39,12 +40,7 @@ index:
 
 database:
   # HDP (Hybrid Data Pipeline) connection via ODBC DSN
-  dsn: "Ajera"  # The DSN you created in ODBC Administrator
-  username: "04864.DRodriguez.prd"
-  password: "auQdQ#OV0BN0"          # Your HDP password
-  
-  # Alternative: Direct connection (uncomment if not using DSN)
-  # driver: "HPD ODBC Driver"
-  # service: "https://your-hdp-endpoint.com"
-  # port: 443
-  # source: "your_hdp_datasource_name"
+  # Credentials should be set via environment variables:
+  #   AAA_DB_DSN, AAA_DB_USERNAME, AAA_DB_PASSWORD
+  # or in a .env file (see .env.example)
+  dsn: "Ajera"

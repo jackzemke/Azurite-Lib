@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import logging
 
+from ..config import settings
 from ..schemas.models import UploadResponse
 
 logger = logging.getLogger(__name__)
@@ -30,9 +31,9 @@ async def upload_files(
         # Log upload info
         total_size = sum(file.size or 0 for file in files if hasattr(file, 'size'))
         logger.info(f"Uploading {len(files)} files for project {project_id} (total: {total_size / 1024 / 1024:.2f}MB)")
-        
+
         # Get upload directory
-        upload_dir = Path(f"/home/jack/lib/project-library/data/raw_docs/{project_id}")
+        upload_dir = settings.raw_docs_path / project_id
         
         # Ensure directory exists
         try:

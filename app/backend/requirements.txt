@@ -16,11 +16,13 @@ Pillow>=10.0.0
 pytesseract>=0.3.10
 
 # ML & Embeddings
-sentence-transformers>=2.2.2
+sentence-transformers>=2.7.0
 torch>=2.1.0
 numpy>=1.24.0
 pandas>=2.1.0
 pyarrow>=14.0.0
+tiktoken>=0.7.0
+einops>=0.7.0
 
 # Vector DB
 chromadb>=0.4.18
@@ -31,7 +33,7 @@ llama-cpp-python>=0.2.20
 # Utilities
 PyYAML>=6.0.0
 python-dateutil>=2.8.0
-aiofiles>=23.0.0
+psutil>=5.9.0
 
 # Database
 pyodbc>=5.0.0
@@ -46,7 +48,3 @@ pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
 httpx>=0.25.0
-
-# Optional: Advanced OCR
-# paddleocr==2.7.0.3
-psutil

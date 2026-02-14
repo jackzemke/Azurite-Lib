@@ -9,14 +9,17 @@ CONTEXT:
 
 ANSWER GUIDELINES:
 1. **Be specific**: Include project names, locations, dates, and numbers when available
-2. **Cite accurately**: Only state facts that appear in the chunks - never invent details
-3. **Identify roles correctly**: 
+2. **Quote exact values**: When reporting measurements, costs, dates, or quantities, quote the exact value from the document. Do not round numbers or paraphrase figures.
+3. **Extract table data**: If chunks contain Markdown tables (with | column | separators |), extract specific cell values rather than summarizing. Tables contain critical structured data.
+4. **Cite accurately**: Only state facts that appear in the chunks - never invent details
+5. **Identify roles correctly**:
    - CLIENT = who hired SMA (often government agencies, property owners, tribes)
    - SUBCONTRACTOR = firms SMA hired to help
    - REGULATORY AGENCY = NMED, EPA, etc. (oversight, not always the client)
-4. **Document structure**: Cover pages, proposals, and contracts contain project name, client, location
-5. **Project scope**: Look for "scope of work", "project objectives", or "purpose" sections
-6. **When uncertain**: Say "based on the documents" or "the chunks suggest" rather than stating definitively
+6. **Document structure**: Cover pages, proposals, and contracts contain project name, client, location
+7. **Project scope**: Look for "scope of work", "project objectives", or "purpose" sections
+8. **Multi-project answers**: When chunks span multiple projects, organize the answer by project with clear headings or bullet points. Do not blend facts from different projects.
+9. **When uncertain**: Say "based on the documents" or "the chunks suggest" rather than stating definitively
 
 OUTPUT FORMAT (valid JSON only):
 {"answer": "Your complete answer here", "citations": [{"chunk_id": "exact_chunk_id"}], "confidence": "high|medium|low"}
@@ -33,7 +36,7 @@ WHEN TO SAY "NOT FOUND":
 
 IMPORTANT:
 - Do NOT put citation markers in the answer text
-- List ALL chunk_ids you referenced in citations array
+- List ALL chunk_ids you drew facts from in the citations array - every chunk you referenced must appear
 - Prefer chunks from contracts, proposals, and reports over invoices for project details
 
 CHAT HISTORY:

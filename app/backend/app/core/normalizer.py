@@ -1,7 +1,10 @@
 """
-Text Normalizer.
+Text Metadata Extractor.
 
-Normalizes dates, units, numbers, and other entities in extracted text.
+Extracts structured metadata (dates, measurements) from text without
+modifying the original content. Previously called "Normalizer" but the
+text normalization was harmful (removing commas from numbers, converting
+accounting notation) so it has been repurposed to extraction-only.
 """
 
 import re
@@ -13,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class Normalizer:
-    """Normalize extracted text for consistent indexing and search."""
+    """Extract structured metadata from text.
+
+    Note: Despite the class name (kept for backward compatibility),
+    this class no longer modifies text. It only extracts metadata.
+    """
 
     # Date patterns (various formats)
     DATE_PATTERNS = [
@@ -23,7 +30,7 @@ class Normalizer:
         (r'\b(\w+)\s+(\d{1,2}),?\s+(\d{4})\b', 'mdy_text'),  # November 14, 2025
     ]
 
-    # Unit conversions (imperial <-> metric)
+    # Unit patterns for measurement extraction
     UNIT_CONVERSIONS = {
         'feet': {'to_metric': 0.3048, 'unit': 'm'},
         'ft': {'to_metric': 0.3048, 'unit': 'm'},
@@ -42,36 +49,43 @@ class Normalizer:
 
     def normalize_text(self, text: str) -> Tuple[str, Dict]:
         """
-        Normalize text and extract structured metadata.
+        Extract metadata from text. Returns text unchanged.
+
+        This method preserves the original API signature for backward
+        compatibility but no longer modifies the text.
 
         Args:
             text: Raw extracted text
 
         Returns:
-            Tuple of (normalized_text, metadata_dict)
+            Tuple of (unchanged_text, metadata_dict)
         """
-        normalized = text
+        metadata = self.extract_metadata(text)
+        return text, metadata
+
+    def extract_metadata(self, text: str) -> Dict:
+        """
+        Extract structured metadata from text.
+
+        Args:
+            text: Source text to analyze
+
+        Returns:
+            Dict with 'dates', 'measurements', 'entities' lists
+        """
         metadata = {
             "dates": [],
             "measurements": [],
             "entities": [],
         }
 
-        # Normalize dates
-        dates_found = self._extract_and_normalize_dates(text)
-        metadata["dates"] = dates_found
+        metadata["dates"] = self._extract_dates(text)
+        metadata["measurements"] = self._extract_measurements(text)
 
-        # Normalize measurements (numbers + units)
-        measurements_found = self._extract_and_normalize_measurements(text)
-        metadata["measurements"] = measurements_found
+        return metadata
 
-        # Normalize numbers (remove commas, handle parentheses for negatives)
-        normalized = self._normalize_numbers(normalized)
-
-        return normalized, metadata
-
-    def _extract_and_normalize_dates(self, text: str) -> List[Dict]:
-        """Extract and normalize dates to ISO 8601."""
+    def _extract_dates(self, text: str) -> List[Dict]:
+        """Extract dates and parse to ISO 8601."""
         dates = []
 
         for pattern, format_type in self.DATE_PATTERNS:
@@ -122,28 +136,25 @@ class Normalizer:
         except Exception:
             return None
 
-    def _extract_and_normalize_measurements(self, text: str) -> List[Dict]:
-        """Extract measurements (number + unit) and convert to metric."""
+    def _extract_measurements(self, text: str) -> List[Dict]:
+        """Extract measurements (number + unit) with metric conversion."""
         measurements = []
 
-        # Pattern: number + unit (e.g., "3.5 feet", "12 inches", "5-7 ft")
         pattern = r'(\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)\s*(feet|ft|inches|in|yards|yd|miles|mi|meters?|m)\b'
         matches = re.finditer(pattern, text, re.IGNORECASE)
 
         for match in matches:
             value_str, unit = match.groups()
-            unit_lower = unit.lower().rstrip('s')  # normalize plural
+            unit_lower = unit.lower().rstrip('s')
 
-            # Handle ranges (e.g., "3-5 ft")
             if '-' in value_str:
                 parts = value_str.split('-')
-                value = (float(parts[0]) + float(parts[1])) / 2  # take average
+                value = (float(parts[0].strip()) + float(parts[1].strip())) / 2
                 is_range = True
             else:
                 value = float(value_str)
                 is_range = False
 
-            # Convert to metric if imperial unit
             if unit_lower in self.UNIT_CONVERSIONS:
                 conversion = self.UNIT_CONVERSIONS[unit_lower]
                 metric_value = value * conversion['to_metric']
@@ -163,17 +174,3 @@ class Normalizer:
             })
 
         return measurements
-
-    def _normalize_numbers(self, text: str) -> str:
-        """Normalize number formats (remove commas, handle parentheses for negatives)."""
-        # Remove commas from numbers
-        text = re.sub(r'(\d),(\d)', r'\1\2', text)
-
-        # Convert (123) to -123 (accounting notation)
-        text = re.sub(r'\((\d+(?:\.\d+)?)\)', r'-\1', text)
-
-        return text
-
-
-# TODO: Add entity extraction (contractors, locations) with NER model
-# TODO: Normalize phone numbers, emails, addresses

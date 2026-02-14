@@ -85,28 +85,32 @@ class QueryExpander:
     def expand_query(self, query: str) -> str:
         """
         Expand query with domain-specific synonyms.
-        
+
+        Limits total expansion terms to 5 to prevent precision degradation
+        from embedding too many loosely related terms.
+
         Args:
             query: Original user query
-            
+
         Returns:
             Expanded query with additional terms
         """
         query_lower = query.lower()
         expanded_terms = set()  # Use set to avoid duplicates
-        
+
         # Check each word/phrase in query against expansion rules
         for keyword, expansions in self.EXPANSION_RULES.items():
             if keyword in query_lower:
-                # Add most relevant expansions (up to 3 for better recall)
-                expanded_terms.update(expansions[:3])
-        
+                # Add most relevant expansions (up to 2 per keyword match)
+                expanded_terms.update(expansions[:2])
+
         if expanded_terms:
-            # Combine original query with expanded terms
-            expanded = f"{query} {' '.join(expanded_terms)}"
-            logger.info(f"Expanded query: '{query}' -> '{expanded}'")
+            # Cap total expansion terms at 5 to preserve precision
+            limited_terms = list(expanded_terms)[:5]
+            expanded = f"{query} {' '.join(limited_terms)}"
+            logger.info(f"Expanded query: '{query}' -> '{expanded}' ({len(limited_terms)} terms added)")
             return expanded
-        
+
         return query
     
     def get_doc_type_hints(self, query: str) -> List[str]:

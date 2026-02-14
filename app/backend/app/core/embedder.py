@@ -1,9 +1,12 @@
 """
 Embedder using sentence-transformers.
 
-Generates vector embeddings for text chunks.
+Generates vector embeddings for text chunks using nomic-embed-text-v1.5.
+Supports task-type prefixes (search_document / search_query) required
+by the nomic model for optimal quality.
 """
 
+import torch
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict
 import numpy as np
@@ -13,11 +16,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Task prefixes required by nomic-embed-text-v1.5.
+# Without these, embedding quality degrades significantly.
+DOCUMENT_PREFIX = "search_document: "
+QUERY_PREFIX = "search_query: "
+
 
 class Embedder:
-    """Generate embeddings for text chunks."""
+    """Generate embeddings for text chunks and queries."""
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", batch_size: int = 32):
+    def __init__(self, model_name: str = "nomic-ai/nomic-embed-text-v1.5", batch_size: int = 32):
         """
         Initialize embedder.
 
@@ -29,13 +37,24 @@ class Embedder:
         self.batch_size = batch_size
 
         logger.info(f"Loading embedding model: {model_name}")
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(model_name, trust_remote_code=True)
+
+        # Move to GPU if available
+        if torch.cuda.is_available():
+            self.model = self.model.to(torch.device("cuda"))
+            logger.info(f"Embedding model loaded on CUDA ({torch.cuda.get_device_name(0)})")
+        else:
+            logger.info("Embedding model loaded on CPU (CUDA not available)")
+
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
-        logger.info(f"Model loaded. Embedding dimension: {self.embedding_dim}")
+        logger.info(f"Embedding dimension: {self.embedding_dim}")
 
     def embed_chunks(self, chunks: List[Dict]) -> List[Dict]:
         """
-        Generate embeddings for a list of chunks.
+        Generate embeddings for a list of chunks (documents).
+
+        Prepends 'search_document: ' prefix to each text for optimal
+        nomic-embed-text quality.
 
         Args:
             chunks: List of chunk dicts with 'text' field
@@ -46,7 +65,8 @@ class Embedder:
         if not chunks:
             return []
 
-        texts = [chunk["text"] for chunk in chunks]
+        # Prepend document prefix for nomic model
+        texts = [DOCUMENT_PREFIX + chunk["text"] for chunk in chunks]
 
         logger.info(f"Embedding {len(texts)} chunks in batches of {self.batch_size}")
         embeddings = self.model.encode(
@@ -67,6 +87,22 @@ class Embedder:
             })
 
         return results
+
+    def embed_query(self, query: str) -> List[float]:
+        """
+        Embed a single query string for retrieval.
+
+        Prepends 'search_query: ' prefix for optimal nomic-embed-text quality.
+
+        Args:
+            query: Query text
+
+        Returns:
+            Embedding as list of floats (ready for ChromaDB)
+        """
+        prefixed = QUERY_PREFIX + query
+        embedding = self.model.encode([prefixed], convert_to_numpy=True)[0]
+        return embedding.tolist()
 
     def save_embeddings(self, embeddings: List[Dict], output_path: Path):
         """
@@ -120,7 +156,3 @@ class Embedder:
 
         logger.info(f"Loaded {len(embeddings)} embeddings from {input_path}")
         return embeddings
-
-
-# TODO: Add GPU acceleration for embedding generation (if available)
-# TODO: Consider caching embeddings to avoid re-encoding unchanged chunks

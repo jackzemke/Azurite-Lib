@@ -19,6 +19,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+from ..config import settings
 from ..schemas.models import IngestRequest, IngestResponse, AsyncIngestResponse
 from ..core.extractors.pdf_extractor import PDFExtractor
 from ..core.extractors.docx_extractor import DOCXExtractor
@@ -58,14 +59,6 @@ class FileProcessingResult:
     def __post_init__(self):
         if self.warnings is None:
             self.warnings = []
-
-
-def get_config():
-    """Load config."""
-    import yaml
-    config_path = Path("/home/jack/lib/project-library/app/backend/config.yaml")
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def resolve_project_identifiers(project_folder: str, raw_docs_path: Path) -> Dict[str, Optional[str]]:
@@ -142,10 +135,8 @@ async def ingest_project_async(
     - Any errors encountered
     - Final result when complete
     """
-    config = get_config()
-    
     # Validate project directory exists before queuing
-    raw_docs_dir = Path(config["paths"]["raw_docs"]) / project_id
+    raw_docs_dir = settings.raw_docs_path / project_id
     if not raw_docs_dir.exists():
         raise HTTPException(
             status_code=404, 
@@ -215,10 +206,8 @@ async def ingest_project(
     start_time = time.time()
     
     try:
-        config = get_config()
-        
         # Validate project directory
-        raw_docs_dir = Path(config["paths"]["raw_docs"]) / project_id
+        raw_docs_dir = settings.raw_docs_path / project_id
         if not raw_docs_dir.exists():
             raise HTTPException(
                 status_code=404, 
@@ -227,35 +216,35 @@ async def ingest_project(
             )
         
         # Resolve all project identifiers
-        project_ids = resolve_project_identifiers(project_id, Path(config["paths"]["raw_docs"]))
+        project_ids = resolve_project_identifiers(project_id, settings.raw_docs_path)
         logger.info(f"Project identifiers: {project_ids}")
         
         # Initialize components
         validator = DocumentValidator(
-            min_text_length=config["ocr"]["min_text_length"],
+            min_text_length=settings.ocr_min_text_length,
             min_ocr_confidence=0.6,
             min_words=20,
         )
-        
-        pdf_extractor = PDFExtractor(min_text_length=config["ocr"]["min_text_length"])
+
+        pdf_extractor = PDFExtractor(min_text_length=settings.ocr_min_text_length)
         docx_extractor = DOCXExtractor()
-        image_ocr = ImageOCR(lang=config["ocr"]["tesseract_lang"])
+        image_ocr = ImageOCR(lang=settings.ocr_tesseract_lang)
         normalizer = Normalizer()
-        
+
         chunker = EnhancedChunker(
-            chunk_size_tokens=config["chunking"]["chunk_size_tokens"],
-            chunk_overlap_tokens=config["chunking"]["chunk_overlap_tokens"],
+            chunk_size_tokens=settings.chunking_chunk_size_tokens,
+            chunk_overlap_tokens=settings.chunking_chunk_overlap_tokens,
             add_context_prefix=True,
             preserve_tables=True,
         )
-        
+
         embedder = Embedder(
-            model_name=config["embedding"]["model_name"],
-            batch_size=config["embedding"]["batch_size"],
+            model_name=settings.embedding_model_name,
+            batch_size=settings.embedding_batch_size,
         )
-        
+
         indexer = Indexer(
-            chroma_db_path=Path(config["paths"]["chroma_db"]),
+            chroma_db_path=settings.chroma_db_path,
         )
         
         # Discover files - prioritize text-rich formats for faster ingestion
@@ -390,7 +379,7 @@ async def ingest_project(
                     continue
                 
                 # Step 6: Save chunks to disk
-                chunks_dir = Path(config["paths"]["chunks"]) / project_id
+                chunks_dir = settings.chunks_path / project_id
                 chunks_dir.mkdir(parents=True, exist_ok=True)
                 
                 for chunk in chunks:
@@ -418,7 +407,7 @@ async def ingest_project(
             embeddings = embedder.embed_chunks(all_chunks)
             
             # Save embeddings
-            embeddings_file = Path(config["paths"]["embeddings"]) / f"{project_id}.parquet"
+            embeddings_file = settings.embeddings_path / f"{project_id}.parquet"
             embeddings_file.parent.mkdir(parents=True, exist_ok=True)
             embedder.save_embeddings(embeddings, embeddings_file)
             
@@ -463,7 +452,7 @@ async def ingest_project(
                 report["errors"].append(f"{r.file_name}: {r.error_message}")
         
         # Save report
-        report_file = Path(config["paths"]["chunks"]).parent / "logs" / f"ingest_report_{project_id}.json"
+        report_file = settings.chunks_path.parent / "logs" / f"ingest_report_{project_id}.json"
         report_file.parent.mkdir(parents=True, exist_ok=True)
         with open(report_file, 'w') as f:
             json.dump(report, f, indent=2)
@@ -495,8 +484,7 @@ async def clear_project_index(project_id: str):
     Does NOT delete the original documents or chunk JSON files.
     """
     try:
-        config = get_config()
-        indexer = Indexer(chroma_db_path=Path(config["paths"]["chroma_db"]))
+        indexer = Indexer(chroma_db_path=settings.chroma_db_path)
         
         # Get count before deletion
         results = indexer.collection.get(
@@ -533,8 +521,7 @@ async def get_project_index_stats(project_id: str):
     Returns chunk counts, document coverage, and quality metrics.
     """
     try:
-        config = get_config()
-        indexer = Indexer(chroma_db_path=Path(config["paths"]["chroma_db"]))
+        indexer = Indexer(chroma_db_path=settings.chroma_db_path)
         
         # Get all chunks for project
         results = indexer.collection.get(

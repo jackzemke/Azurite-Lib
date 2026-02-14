@@ -34,6 +34,8 @@ except ImportError:
     def get_current_job():
         return None
 
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,14 +61,6 @@ class FileProcessingResult:
     def __post_init__(self):
         if self.warnings is None:
             self.warnings = []
-
-
-def get_config():
-    """Load configuration."""
-    import yaml
-    config_path = Path("/home/jack/lib/project-library/app/backend/config.yaml")
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def update_progress(
@@ -141,13 +135,11 @@ def run_ingest_job(
         from ..core.document_validator import DocumentValidator
         from ..core.project_mapper import get_project_mapper
         from ..core.filesystem_scanner import FileSystemProjectScanner
-        
-        config = get_config()
-        
+
         update_progress(1, "Loading configuration...")
         
         # Validate project directory
-        raw_docs_dir = Path(config["paths"]["raw_docs"]) / project_id
+        raw_docs_dir = settings.raw_docs_path / project_id
         if not raw_docs_dir.exists():
             raise ValueError(
                 f"Project directory not found: {raw_docs_dir}. "
@@ -157,37 +149,37 @@ def run_ingest_job(
         update_progress(2, "Resolving project identifiers...")
         
         # Resolve project identifiers
-        project_ids = _resolve_project_identifiers(project_id, Path(config["paths"]["raw_docs"]))
+        project_ids = _resolve_project_identifiers(project_id, settings.raw_docs_path)
         logger.info(f"Project identifiers: {project_ids}")
         
         update_progress(5, "Initializing components...")
         
         # Initialize components
         validator = DocumentValidator(
-            min_text_length=config["ocr"]["min_text_length"],
+            min_text_length=settings.ocr_min_text_length,
             min_ocr_confidence=0.6,
             min_words=20,
         )
         
-        pdf_extractor = PDFExtractor(min_text_length=config["ocr"]["min_text_length"])
+        pdf_extractor = PDFExtractor(min_text_length=settings.ocr_min_text_length)
         docx_extractor = DOCXExtractor()
-        image_ocr = ImageOCR(lang=config["ocr"]["tesseract_lang"])
+        image_ocr = ImageOCR(lang=settings.ocr_tesseract_lang)
         normalizer = Normalizer()
         
         chunker = EnhancedChunker(
-            chunk_size_tokens=config["chunking"]["chunk_size_tokens"],
-            chunk_overlap_tokens=config["chunking"]["chunk_overlap_tokens"],
+            chunk_size_tokens=settings.chunking_chunk_size_tokens,
+            chunk_overlap_tokens=settings.chunking_chunk_overlap_tokens,
             add_context_prefix=True,
             preserve_tables=True,
         )
         
         embedder = Embedder(
-            model_name=config["embedding"]["model_name"],
-            batch_size=config["embedding"]["batch_size"],
+            model_name=settings.embedding_model_name,
+            batch_size=settings.embedding_batch_size,
         )
         
         indexer = Indexer(
-            chroma_db_path=Path(config["paths"]["chroma_db"]),
+            chroma_db_path=settings.chroma_db_path,
         )
         
         update_progress(8, "Discovering files...")
@@ -313,7 +305,7 @@ def run_ingest_job(
                     continue
                 
                 # Save chunks to disk
-                chunks_dir = Path(config["paths"]["chunks"]) / project_id
+                chunks_dir = settings.chunks_path / project_id
                 chunks_dir.mkdir(parents=True, exist_ok=True)
                 
                 for chunk in chunks:
@@ -352,7 +344,7 @@ def run_ingest_job(
             update_progress(90, "Saving embeddings...")
             
             # Save embeddings
-            embeddings_file = Path(config["paths"]["embeddings"]) / f"{project_id}.parquet"
+            embeddings_file = settings.embeddings_path / f"{project_id}.parquet"
             embeddings_file.parent.mkdir(parents=True, exist_ok=True)
             embedder.save_embeddings(embeddings, embeddings_file)
             
@@ -398,7 +390,7 @@ def run_ingest_job(
                 report["skip_reasons"][r.skip_reason] = report["skip_reasons"].get(r.skip_reason, 0) + 1
         
         # Save report
-        report_file = Path(config["paths"]["chunks"]).parent / "logs" / f"ingest_report_{project_id}.json"
+        report_file = settings.chunks_path.parent / "logs" / f"ingest_report_{project_id}.json"
         report_file.parent.mkdir(parents=True, exist_ok=True)
         with open(report_file, 'w') as f:
             json.dump(report, f, indent=2)

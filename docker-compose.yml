@@ -1,20 +1,24 @@
-version: '3.8'
-
 services:
+  # ---------- Backend API ----------
   backend:
     build:
       context: ./app/backend
       dockerfile: Dockerfile
-    container_name: project-library-backend
+    container_name: aaa-backend
     ports:
       - "8000:8000"
     volumes:
       - ./data:/data
-      - ./app/backend/config.yaml:/app/config.yaml
+      - ./app/backend/config.yaml:/app/config.yaml:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - CUDA_VISIBLE_DEVICES=0
       - CONFIG_PATH=/app/config.yaml
+      - AAA_BASE_DIR=/
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    env_file:
+      - ./app/backend/.env
     deploy:
       resources:
         reservations:
@@ -22,87 +26,129 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    # Alternative for older Docker versions:
-    # runtime: nvidia
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
+  # ---------- RQ Worker (background ingestion jobs) ----------
+  worker:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile
+    container_name: aaa-worker
+    volumes:
+      - ./data:/data
+      - ./app/backend/config.yaml:/app/config.yaml:ro
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+      - CONFIG_PATH=/app/config.yaml
+      - AAA_BASE_DIR=/
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    env_file:
+      - ./app/backend/.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["python", "-m", "rq.cli", "worker", "--url", "redis://redis:6379/0", "ingestion"]
+
+  # ---------- Redis (job queue) ----------
+  redis:
+    image: redis:7-alpine
+    container_name: aaa-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ---------- Frontend (nginx serving React + API proxy) ----------
   frontend:
     build:
       context: ./app/frontend
       dockerfile: Dockerfile
-    container_name: project-library-frontend
+      args:
+        VITE_API_URL: ""
+    container_name: aaa-frontend
     ports:
-      - "5173:5173"
+      - "80:80"
+    restart: unless-stopped
     depends_on:
-      - backend
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    command: npm run dev -- --host 0.0.0.0
-
-  # Optional: Run Chroma as separate service (currently embedded in backend)
-  # Uncomment if you want to scale Chroma independently
-  # chroma:
-  #   image: ghcr.io/chroma-core/chroma:latest
-  #   container_name: project-library-chroma
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - ./data/index/chroma:/chroma/chroma
-  #   environment:
-  #     - IS_PERSISTENT=TRUE
-  #     - ANONYMIZED_TELEMETRY=FALSE
+      backend:
+        condition: service_healthy
 
 volumes:
-  data:
-    driver: local
+  redis_data:
 
 # NOTES:
-# 
+#
 # 1. GPU Support:
 #    - Requires NVIDIA Container Toolkit installed on host
 #    - Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
-#    - Verify: docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+#    - Verify: docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
 #
 # 2. CPU Fallback:
-#    If GPU not available, remove the `deploy.resources` section and set in config.yaml:
-#    model:
-#      n_gpu_layers: 0
+#    If GPU not available, remove the `deploy.resources` section from
+#    both backend and worker, and set in config.yaml:
+#      model:
+#        n_gpu_layers: 0
 #
 # 3. Model File:
 #    Before running, ensure model file exists at:
-#    ./data/models/Llama-3.2-3B-Instruct-Q6_K.gguf
-#    
-#    If missing, backend runs in stub mode (deterministic test responses)
+#    ./data/models/Meta-Llama-3.1-8B-Instruct-Q6_K.gguf
 #
-# 4. Ports:
-#    - 8000: Backend API
-#    - 5173: Frontend (Vite dev server)
-#    - 8001: Chroma (if using separate service)
+#    If missing, backend runs in stub mode (deterministic test responses).
 #
-# 5. Data Persistence:
-#    All data stored in ./data/ directory (mounted as volume):
-#    - raw_docs/: Uploaded documents
-#    - chunks/: Chunked JSON files
-#    - embeddings/: Parquet files
-#    - index/chroma/: Vector DB
-#    - logs/: Query and ingestion logs
+# 4. Environment:
+#    Copy app/backend/.env.example to app/backend/.env and fill in values.
+#    Env vars override config.yaml settings.
 #
-# 6. Build and Run:
-#    docker-compose up --build
+# 5. Ports:
+#    - 80:   Frontend (nginx — serves UI + proxies /api/ to backend)
+#    - 8000: Backend API (direct access, useful for debugging)
+#    - 6379: Redis (only exposed for debugging; remove in production)
 #
-# 7. View Logs:
-#    docker-compose logs -f backend
+# 6. Data Persistence:
+#    All data stored in ./data/ directory (bind-mounted):
+#    - raw_docs/:           Uploaded documents
+#    - chunks/:             Chunked JSON files
+#    - embeddings/:         Parquet files
+#    - index/chroma/:       Vector DB
+#    - models/:             LLM and embedding model files
+#    - logs/:               Query and ingestion logs
 #
-# 8. Stop:
-#    docker-compose down
+# 7. Build and Run:
+#    docker compose up --build -d
 #
-# 9. Clean Rebuild:
-#    docker-compose down -v
-#    docker-compose build --no-cache
-#    docker-compose up
+# 8. View Logs:
+#    docker compose logs -f backend
+#    docker compose logs -f worker
+#
+# 9. Stop:
+#    docker compose down
+#
+# 10. Clean Rebuild:
+#     docker compose down -v
+#     docker compose build --no-cache
+#     docker compose up -d

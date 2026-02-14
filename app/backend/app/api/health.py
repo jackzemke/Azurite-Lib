@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 import logging
 
+from ..config import settings
 from ..schemas.models import HealthResponse
 from ..core.indexer import Indexer
 from ..core.llm_client import LLMClient
@@ -18,24 +19,15 @@ router = APIRouter()
 START_TIME = time.time()
 
 
-def get_config():
-    """Load config."""
-    import yaml
-    config_path = Path("/home/jack/lib/project-library/app/backend/config.yaml")
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
 @router.get("/projects")
 async def list_projects():
     """
     Get list of all indexed projects.
-    
+
     Returns list of project IDs with document counts.
     """
     try:
-        config = get_config()
-        indexer = Indexer(chroma_db_path=Path(config["paths"]["chroma_db"]))
+        indexer = Indexer(chroma_db_path=settings.chroma_db_path)
         
         # Get all projects
         projects = indexer.get_indexed_projects()
@@ -75,15 +67,13 @@ async def health_check():
     Returns system status, indexed projects, and uptime.
     """
     try:
-        config = get_config()
-
         # Check LLM status
-        llm_client = LLMClient(config)
+        llm_client = LLMClient(settings.get_legacy_config_dict())
         models_loaded = not llm_client.is_stub_mode()
         stub_mode = llm_client.is_stub_mode()
 
         # Check Chroma status
-        indexer = Indexer(chroma_db_path=Path(config["paths"]["chroma_db"]))
+        indexer = Indexer(chroma_db_path=settings.chroma_db_path)
         indexed_projects = indexer.get_indexed_projects()
         total_chunks = indexer.collection.count()
 

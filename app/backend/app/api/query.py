@@ -8,11 +8,14 @@ import time
 import json
 import logging
 from datetime import datetime
+from functools import lru_cache
 
+from ..config import settings
 from ..schemas.models import QueryRequest, QueryResponse, Citation
 from ..core.embedder import Embedder
 from ..core.indexer import Indexer
 from ..core.llm_client import LLMClient
+from ..core.reranker import Reranker
 from ..core.ajera_loader import get_ajera_data
 from ..core.query_expander import QueryExpander
 from ..core.project_resolver import get_project_resolver
@@ -21,17 +24,57 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_config():
-    """Load config."""
-    import yaml
-    config_path = Path("/home/jack/lib/project-library/app/backend/config.yaml")
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+# --- Singleton service factories ---
+# Initialized once, reused across requests.
+
+_embedder = None
+_indexer = None
+_llm_client = None
+_query_expander = None
+_reranker = None
+
+
+def get_embedder() -> Embedder:
+    global _embedder
+    if _embedder is None:
+        _embedder = Embedder(
+            model_name=settings.embedding_model_name,
+            batch_size=settings.embedding_batch_size,
+        )
+    return _embedder
+
+
+def get_indexer() -> Indexer:
+    global _indexer
+    if _indexer is None:
+        _indexer = Indexer(chroma_db_path=settings.chroma_db_path)
+    return _indexer
+
+
+def get_llm_client() -> LLMClient:
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = LLMClient(settings.get_legacy_config_dict())
+    return _llm_client
+
+
+def get_query_expander() -> QueryExpander:
+    global _query_expander
+    if _query_expander is None:
+        _query_expander = QueryExpander()
+    return _query_expander
+
+
+def get_reranker() -> Reranker:
+    global _reranker
+    if _reranker is None:
+        _reranker = Reranker()
+    return _reranker
 
 
 def load_prompt_template(name: str) -> str:
     """Load prompt template."""
-    prompt_path = Path("/home/jack/lib/project-library/app/backend/app/prompts") / f"{name}.txt"
+    prompt_path = settings.prompts_dir / f"{name}.txt"
     with open(prompt_path) as f:
         return f.read()
 
@@ -51,13 +94,12 @@ async def query_documents(request: QueryRequest):
     start_time = time.time()
 
     try:
-        config = get_config()
-
-        # Initialize components
-        embedder = Embedder(model_name=config["embedding"]["model_name"])
-        indexer = Indexer(chroma_db_path=Path(config["paths"]["chroma_db"]))
-        llm_client = LLMClient(config)
-        query_expander = QueryExpander()
+        # Use singleton services (initialized once, reused across requests)
+        embedder = get_embedder()
+        indexer = get_indexer()
+        llm_client = get_llm_client()
+        query_expander = get_query_expander()
+        reranker = get_reranker()
 
         # Determine which projects to search
         project_ids_to_search = request.project_ids
@@ -110,8 +152,8 @@ async def query_documents(request: QueryRequest):
         if doc_type_hints:
             logger.info(f"Doc type hints for query: {doc_type_hints}")
         
-        # Embed expanded query
-        query_embedding = embedder.model.encode([expanded_query])[0].tolist()
+        # Embed expanded query (uses search_query: prefix for nomic model)
+        query_embedding = embedder.embed_query(expanded_query)
 
         # Detect team/people queries for hybrid search (include Ajera time tracking)
         query_lower = request.query.lower()
@@ -124,29 +166,48 @@ async def query_documents(request: QueryRequest):
         # For broad queries, retrieve more chunks for better synthesis
         is_broad_query = any(term in query_lower for term in ["summary", "overview", "purpose", "about", "describe", "explain", "what was"])
         retrieval_k = min(request.k * 2, 15) if is_broad_query else request.k
-        
+
+        # Fetch extra candidates for cross-encoder reranking
+        fetch_k = max(retrieval_k * 3, 20)
+
         # Retrieve chunks with doc type boosting
         retrieved_chunks = indexer.query(
             query_embedding=query_embedding,
             project_ids=project_ids_to_search,
-            top_k=retrieval_k,
+            top_k=fetch_k,
+            diversity=False,  # Diversity applied after reranking
             doc_type_hints=doc_type_hints,
         )
-        
+
         # If no results with expanded query, try alternative formulations
         if not retrieved_chunks:
             logger.info("No results with expanded query, trying alternatives...")
             for alt_query in query_expander.rewrite_query(request.query):
-                alt_embedding = embedder.model.encode([alt_query])[0].tolist()
+                alt_embedding = embedder.embed_query(alt_query)
                 retrieved_chunks = indexer.query(
                     query_embedding=alt_embedding,
                     project_ids=project_ids_to_search,
-                    top_k=retrieval_k,
+                    top_k=fetch_k,
+                    diversity=False,
                     doc_type_hints=doc_type_hints,
                 )
                 if retrieved_chunks:
                     logger.info(f"Found results with alternative query: '{alt_query}'")
                     break
+
+        # Cross-encoder reranking: rerank top candidates to top-10
+        if len(retrieved_chunks) > 1:
+            retrieved_chunks = reranker.rerank(
+                query=request.query,
+                chunks=retrieved_chunks,
+                top_k=max(retrieval_k * 2, 10),
+            )
+
+        # Apply diversity filtering after reranking
+        if len(retrieved_chunks) > retrieval_k:
+            retrieved_chunks = indexer._apply_diversity(
+                retrieved_chunks, retrieval_k, max_per_document=2
+            )
 
         # Enhanced debug logging for failure isolation
         scope = f"projects={request.project_ids}" if request.project_ids else "all projects"
@@ -208,9 +269,9 @@ async def query_documents(request: QueryRequest):
                     elapsed_ms=int((time.time() - start_time) * 1000),
                     stub_mode=llm_client.is_stub_mode(),
                 )
-                _log_query(config, request, response)
+                _log_query(request, response)
                 return response
-            
+
             # No chunks found - provide fallback with Ajera project info
             fallback_msg = "Not found in indexed documents."
             
@@ -247,16 +308,16 @@ async def query_documents(request: QueryRequest):
                 elapsed_ms=int((time.time() - start_time) * 1000),
                 stub_mode=llm_client.is_stub_mode(),
             )
-            _log_query(config, request, response)
+            _log_query(request, response)
             return response
 
         # Build QA prompt
         qa_template = load_prompt_template("qa_prompt")
 
         # Convert absolute paths to relative for LLM (cleaner, prevents path leakage)
-        base_docs_path = Path(config["paths"]["raw_docs"])
+        base_docs_path = settings.raw_docs_path
         candidates = []
-        for chunk in retrieved_chunks[:6]:  # Limit chunks to prevent token overflow
+        for chunk in retrieved_chunks[:8]:  # Increased from 6 — more context for 8K model
             file_path_abs = Path(chunk["metadata"]["file_path"])
             project_id = chunk["metadata"]["project_id"]
             
@@ -276,7 +337,7 @@ async def query_documents(request: QueryRequest):
                 "doc_name": doc_name,
                 "project": project_id,
                 "page": chunk["metadata"]["page_number"],
-                "text": chunk["text"][:800],
+                "text": chunk["text"][:1500],
             })
 
         # Format chat history
@@ -339,7 +400,7 @@ async def query_documents(request: QueryRequest):
         # LLM only provides chunk_ids, we fill in all other fields from metadata
         citations = []
         chunk_map = {chunk["chunk_id"]: chunk for chunk in retrieved_chunks}
-        base_docs_path = Path(config["paths"]["raw_docs"])
+        base_docs_path = settings.raw_docs_path
         
         for cit in citations_raw:
             # Handle both formats: {"chunk_id": "..."} or just "chunk_id_string"
@@ -405,7 +466,7 @@ async def query_documents(request: QueryRequest):
         )
 
         # Log query
-        _log_query(config, request, response)
+        _log_query(request, response)
 
         return response
 
@@ -414,10 +475,10 @@ async def query_documents(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 
-def _log_query(config: dict, request: QueryRequest, response: QueryResponse):
+def _log_query(request: QueryRequest, response: QueryResponse):
     """Log query to queries.log."""
     try:
-        log_file = Path(config["logging"]["queries_log"])
+        log_file = settings.queries_log_path
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Get employee_id_resolved from outer scope if available
