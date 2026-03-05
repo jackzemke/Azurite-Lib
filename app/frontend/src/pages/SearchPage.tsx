@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import JobStatusIndicator from '../components/JobStatusIndicator'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -183,13 +184,22 @@ export default function SearchPage({ onOpenUpload, onOpenHelp }: SearchPageProps
   }
 
   const handleCitationClick = (citation: Citation) => {
-    // Open document in new tab
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-    const documentUrl = `${API_URL}/api/v1/projects/${citation.project_id}/documents/${encodeURIComponent(citation.file_path)}`
-    
-    console.log('Opening document:', documentUrl)
-    console.log('Citation details:', citation)
-    
+    let documentUrl = `${API_URL}/api/v1/projects/${citation.project_id}/documents/${encodeURIComponent(citation.file_path)}`
+
+    // Append page fragment for PDF files so browser viewer jumps to the cited page
+    const isPdf = citation.file_path.toLowerCase().endsWith('.pdf')
+    if (isPdf && citation.page > 0) {
+      documentUrl += `#page=${citation.page}`
+    }
+
+    // Track citation click (fire-and-forget)
+    axios.post(`${API_URL}/api/v1/analytics/events`, {
+      event_type: 'citation_click',
+      project_id: citation.project_id,
+      file_path: citation.file_path,
+      page: citation.page,
+    }).catch(() => {})
+
     window.open(documentUrl, '_blank')
   }
 
@@ -262,6 +272,7 @@ export default function SearchPage({ onOpenUpload, onOpenHelp }: SearchPageProps
               ?
             </button>
           )}
+          <JobStatusIndicator onOpenUpload={onOpenUpload} />
         </div>
         <div>
           {projects.length > 0 && (

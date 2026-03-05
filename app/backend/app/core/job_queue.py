@@ -20,7 +20,7 @@ import os
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
@@ -229,7 +229,7 @@ class JobQueue:
         # Calculate duration
         duration = None
         if job.started_at:
-            end_time = job.ended_at or datetime.utcnow()
+            end_time = job.ended_at or datetime.now(timezone.utc)
             if hasattr(end_time, 'timestamp') and hasattr(job.started_at, 'timestamp'):
                 duration = (end_time - job.started_at).total_seconds()
         

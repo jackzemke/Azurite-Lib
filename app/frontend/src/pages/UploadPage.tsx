@@ -197,7 +197,7 @@ export default function UploadPage({ onClose }: UploadPageProps) {
     if (!projectInfo || files.length === 0) return
     const startTime = Date.now()
     const totalBytes = files.reduce((sum, f) => sum + f.size, 0)
-    const BATCH_SIZE = 5
+    const BATCH_SIZE = 1
     const totalBatches = Math.ceil(files.length / BATCH_SIZE)
     setStep('uploading')
     setProgress({ 

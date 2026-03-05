@@ -1,5 +1,5 @@
 model:
-  path: "data/models/Meta-Llama-3.1-8B-Instruct-Q6_K.gguf"
+  path: "data/models/Llama-3.2-3B-Instruct-Q6_K.gguf"
   n_gpu_layers: 40
   n_threads: 8
   max_tokens: 1024
@@ -44,3 +44,17 @@ database:
   #   AAA_DB_DSN, AAA_DB_USERNAME, AAA_DB_PASSWORD
   # or in a .env file (see .env.example)
   dsn: "Ajera"
+
+network_drives:
+  # Directory index configuration for file location & duplicate detection
+  db_path: "data/index/directory_index.db"
+  drives:
+    # Uncomment and configure for your network drives:
+    # - name: "S Drive"
+    #   mount_path: "/mnt/s_drive"      # Linux mount point
+    #   drive_letter: "S"               # Windows drive letter for display
+    #   has_department_level: true       # Drive > Dept > Project (3 levels)
+    # - name: "P Drive"
+    #   mount_path: "/mnt/p_drive"
+    #   drive_letter: "P"
+    #   has_department_level: false      # Drive > Project (2 levels)

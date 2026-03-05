@@ -64,6 +64,11 @@ class QueryResponse(BaseModel):
     confidence: str = Field(..., pattern="^(high|medium|low)$")
     elapsed_ms: int
     stub_mode: bool = False
+    # Query router fields (all Optional for backward compatibility)
+    intents: Optional[List[str]] = None
+    personnel_data: Optional[dict] = None
+    file_location: Optional[dict] = None
+    duplicate_info: Optional[dict] = None
 
 
 # Chunk models

@@ -8,68 +8,16 @@ import time
 import json
 import logging
 from datetime import datetime
-from functools import lru_cache
 
 from ..config import settings
 from ..schemas.models import QueryRequest, QueryResponse, Citation
-from ..core.embedder import Embedder
-from ..core.indexer import Indexer
-from ..core.llm_client import LLMClient
-from ..core.reranker import Reranker
 from ..core.ajera_loader import get_ajera_data
-from ..core.query_expander import QueryExpander
 from ..core.project_resolver import get_project_resolver
+from ..core.query_router import classify_query, QueryIntent, RouterResult
+from ..services import get_embedder, get_indexer, get_llm_client, get_reranker, get_query_expander, get_directory_index
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-# --- Singleton service factories ---
-# Initialized once, reused across requests.
-
-_embedder = None
-_indexer = None
-_llm_client = None
-_query_expander = None
-_reranker = None
-
-
-def get_embedder() -> Embedder:
-    global _embedder
-    if _embedder is None:
-        _embedder = Embedder(
-            model_name=settings.embedding_model_name,
-            batch_size=settings.embedding_batch_size,
-        )
-    return _embedder
-
-
-def get_indexer() -> Indexer:
-    global _indexer
-    if _indexer is None:
-        _indexer = Indexer(chroma_db_path=settings.chroma_db_path)
-    return _indexer
-
-
-def get_llm_client() -> LLMClient:
-    global _llm_client
-    if _llm_client is None:
-        _llm_client = LLMClient(settings.get_legacy_config_dict())
-    return _llm_client
-
-
-def get_query_expander() -> QueryExpander:
-    global _query_expander
-    if _query_expander is None:
-        _query_expander = QueryExpander()
-    return _query_expander
-
-
-def get_reranker() -> Reranker:
-    global _reranker
-    if _reranker is None:
-        _reranker = Reranker()
-    return _reranker
 
 
 def load_prompt_template(name: str) -> str:
@@ -155,29 +103,36 @@ async def query_documents(request: QueryRequest):
         # Embed expanded query (uses search_query: prefix for nomic model)
         query_embedding = embedder.embed_query(expanded_query)
 
-        # Detect team/people queries for hybrid search (include Ajera time tracking)
-        query_lower = request.query.lower()
-        team_keywords = ["who worked", "who's working", "who is working", "team", "staff", 
-                         "people", "employees", "worked on", "working on", "personnel",
-                         "engineer", "engineers", "manager", "pm", "project manager",
-                         "architect", "designer", "who was", "who did", "who is"]
-        is_team_query = any(keyword in query_lower for keyword in team_keywords)
-        
-        # For broad queries, retrieve more chunks for better synthesis
-        is_broad_query = any(term in query_lower for term in ["summary", "overview", "purpose", "about", "describe", "explain", "what was"])
+        # Classify query intent (rule-based, ~0ms)
+        router_result = classify_query(request.query)
+        is_team_query = router_result.is_team_query
+        is_broad_query = router_result.is_broad_query
         retrieval_k = min(request.k * 2, 15) if is_broad_query else request.k
 
         # Fetch extra candidates for cross-encoder reranking
         fetch_k = max(retrieval_k * 3, 20)
 
         # Retrieve chunks with doc type boosting
-        retrieved_chunks = indexer.query(
-            query_embedding=query_embedding,
-            project_ids=project_ids_to_search,
-            top_k=fetch_k,
-            diversity=False,  # Diversity applied after reranking
-            doc_type_hints=doc_type_hints,
-        )
+        try:
+            retrieved_chunks = indexer.query(
+                query_embedding=query_embedding,
+                project_ids=project_ids_to_search,
+                top_k=fetch_k,
+                diversity=False,  # Diversity applied after reranking
+                doc_type_hints=doc_type_hints,
+            )
+        except Exception as e:
+            err_msg = str(e)
+            if "Error finding id" in err_msg or "Error executing plan" in err_msg:
+                logger.error(f"ChromaDB index corrupted: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "The search index is corrupted and needs to be rebuilt. "
+                        "POST /api/v1/admin/index/rebuild to fix this."
+                    ),
+                )
+            raise
 
         # If no results with expanded query, try alternative formulations
         if not retrieved_chunks:
@@ -224,28 +179,11 @@ async def query_documents(request: QueryRequest):
         else:
             logger.warning(f"[RETRIEVAL] No chunks found for query: '{request.query}'")
         
-        # For team queries, get Ajera data if project_id available
-        ajera_team_data = None
-        if is_team_query and request.project_ids and len(request.project_ids) == 1:
-            try:
-                resolver = get_project_resolver()
-                project_folder = request.project_ids[0]
-                
-                # Use resolver to get team data (handles folder -> Ajera key mapping)
-                team = resolver.get_project_team_from_folder(project_folder)
-                if team:
-                    # Top 10 employees by hours
-                    top_team = team[:10]
-                    ajera_team_data = {
-                        "total_employees": len(team),
-                        "top_employees": top_team,
-                        "project_folder": project_folder
-                    }
-                    logger.info(f"Team query: Found {len(team)} employees for project folder '{project_folder}'")
-                else:
-                    logger.info(f"Team query: No Ajera records found for folder '{project_folder}'")
-            except Exception as e:
-                logger.warning(f"Error getting Ajera team data: {e}")
+        # Run intent handlers
+        personnel_data = _handle_personnel(request, router_result)
+        file_location_data = _handle_file_location(request, router_result)
+        duplicate_data = _handle_duplicate_detection(request, router_result)
+        ajera_team_data = personnel_data  # backward compat alias
 
         if not retrieved_chunks:
             # For team queries with no docs, return Ajera team if available
@@ -268,8 +206,12 @@ async def query_documents(request: QueryRequest):
                     confidence="medium",
                     elapsed_ms=int((time.time() - start_time) * 1000),
                     stub_mode=llm_client.is_stub_mode(),
+                    intents=[i.value for i in router_result.intents],
+                    personnel_data=personnel_data,
+                    file_location=file_location_data,
+                    duplicate_info=duplicate_data,
                 )
-                _log_query(request, response)
+                _log_query(request, response, router_result)
                 return response
 
             # No chunks found - provide fallback with Ajera project info
@@ -307,8 +249,12 @@ async def query_documents(request: QueryRequest):
                 confidence="low",
                 elapsed_ms=int((time.time() - start_time) * 1000),
                 stub_mode=llm_client.is_stub_mode(),
+                intents=[i.value for i in router_result.intents],
+                personnel_data=personnel_data,
+                file_location=file_location_data,
+                duplicate_info=duplicate_data,
             )
-            _log_query(request, response)
+            _log_query(request, response, router_result)
             return response
 
         # Build QA prompt
@@ -357,18 +303,10 @@ async def query_documents(request: QueryRequest):
             for i, c in enumerate(candidates)
         ])
         
-        # Add Ajera team data to context for team queries
-        if is_team_query and ajera_team_data:
-            team_list = "\n".join([
-                f"  - {emp['name']} (Employee {emp['employee_id']}): {emp['total_hours']} hours logged"
-                for emp in ajera_team_data['top_employees']
-            ])
-            total = ajera_team_data['total_employees']
-            showing = len(ajera_team_data['top_employees'])
-            more = f" (showing top {showing} by hours)" if total > showing else ""
-            
-            candidates_text += f"\n\n[AJERA TIME TRACKING DATA]\nTotal employees who logged time: {total}{more}\n{team_list}"
-            logger.info(f"Added Ajera team context for {total} employees")
+        # Merge supplementary context from intent handlers
+        candidates_text = _merge_supplementary_context(
+            candidates_text, personnel_data, file_location_data, duplicate_data
+        )
 
         # Replace placeholders
         prompt = qa_template.replace("<<CHAT_HISTORY>>", history_text)
@@ -377,7 +315,7 @@ async def query_documents(request: QueryRequest):
 
         # Generate answer
         logger.info(f"Generating answer for query: {request.query[:50]}")
-        llm_output = llm_client.generate_json(prompt, max_tokens=3500)  # Very high limit to prevent JSON truncation with many chunks
+        llm_output = llm_client.generate_json(prompt, max_tokens=1024)
 
         # Log what LLM returned for debugging
         logger.debug(f"LLM output type: {type(llm_output)}, keys: {llm_output.keys() if isinstance(llm_output, dict) else 'N/A'}")
@@ -463,10 +401,14 @@ async def query_documents(request: QueryRequest):
             confidence=confidence,
             elapsed_ms=elapsed_ms,
             stub_mode=llm_client.is_stub_mode(),
+            intents=[i.value for i in router_result.intents],
+            personnel_data=personnel_data,
+            file_location=file_location_data,
+            duplicate_info=duplicate_data,
         )
 
         # Log query
-        _log_query(request, response)
+        _log_query(request, response, router_result)
 
         return response
 
@@ -475,7 +417,181 @@ async def query_documents(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 
-def _log_query(request: QueryRequest, response: QueryResponse):
+# ---------------------------------------------------------------------------
+# Intent handlers
+# ---------------------------------------------------------------------------
+
+def _handle_personnel(request: QueryRequest, router_result: RouterResult):
+    """Handle PERSONNEL intent: fetch Ajera team data for the project."""
+    if not router_result.has_personnel:
+        return None
+
+    if not request.project_ids or len(request.project_ids) != 1:
+        return None
+
+    try:
+        resolver = get_project_resolver()
+        project_folder = request.project_ids[0]
+
+        team = resolver.get_project_team_from_folder(project_folder)
+        if team:
+            top_team = team[:10]
+            result = {
+                "total_employees": len(team),
+                "top_employees": top_team,
+                "project_folder": project_folder,
+            }
+            logger.info(f"Team query: Found {len(team)} employees for project folder '{project_folder}'")
+            return result
+        else:
+            logger.info(f"Team query: No Ajera records found for folder '{project_folder}'")
+    except Exception as e:
+        logger.warning(f"Error getting Ajera team data: {e}")
+
+    return None
+
+
+def _handle_file_location(request: QueryRequest, router_result: RouterResult):
+    """Handle FILE_LOCATION intent: find where project files are stored on network drives."""
+    if not router_result.has_file_location:
+        return None
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        logger.info("[ROUTER] FILE_LOCATION intent detected but directory_index not available")
+        return {
+            "status": "not_available",
+            "message": "File location search is not yet configured.",
+            "detected_drive": router_result.drive_mention,
+        }
+
+    if not directory_index.is_available():
+        return {
+            "status": "not_available",
+            "message": "Directory index has no scan data. An admin needs to run a drive scan first.",
+            "detected_drive": router_result.drive_mention,
+        }
+
+    # Use project_id from request if available, otherwise search by query text
+    project_id = request.project_ids[0] if request.project_ids and len(request.project_ids) == 1 else None
+
+    results = directory_index.search_project_location(
+        query=request.query,
+        project_id=project_id,
+        limit=5,
+    )
+
+    if results:
+        return {
+            "status": "found",
+            "locations": results,
+            "detected_drive": router_result.drive_mention,
+        }
+    else:
+        return {
+            "status": "not_found",
+            "message": "No matching project directories found in the directory index.",
+            "detected_drive": router_result.drive_mention,
+        }
+
+
+def _handle_duplicate_detection(request: QueryRequest, router_result: RouterResult):
+    """Handle DUPLICATE_DETECTION intent: check for duplicate project directories."""
+    if not router_result.has_duplicate_detection:
+        return None
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        logger.info("[ROUTER] DUPLICATE_DETECTION intent detected but directory_index not available")
+        return {
+            "status": "not_available",
+            "message": "Duplicate detection is not yet configured.",
+        }
+
+    if not directory_index.is_available():
+        return {
+            "status": "not_available",
+            "message": "Directory index has no scan data. An admin needs to run a drive scan first.",
+        }
+
+    # Check for duplicates
+    project_id = request.project_ids[0] if request.project_ids and len(request.project_ids) == 1 else None
+
+    results = directory_index.find_duplicates(
+        query=request.query,
+        project_id=project_id,
+        limit=10,
+    )
+
+    if results:
+        return {
+            "status": "checked",
+            "duplicates": results,
+        }
+    else:
+        return {
+            "status": "checked",
+            "duplicates": [],
+            "message": "No duplicate project directories found.",
+        }
+
+
+def _merge_supplementary_context(
+    candidates_text: str,
+    personnel_data,
+    file_location_data,
+    duplicate_data,
+) -> str:
+    """
+    Merge supplementary data from secondary intents into the LLM context.
+
+    Follows the existing pattern where Ajera team data is appended as a
+    labeled section in the candidates text.
+    """
+    # Personnel data
+    if personnel_data and personnel_data.get("top_employees"):
+        team_list = "\n".join([
+            f"  - {emp['name']} (Employee {emp['employee_id']}): {emp['total_hours']} hours logged"
+            for emp in personnel_data["top_employees"]
+        ])
+        total = personnel_data["total_employees"]
+        showing = len(personnel_data["top_employees"])
+        more = f" (showing top {showing} by hours)" if total > showing else ""
+
+        candidates_text += (
+            f"\n\n[AJERA TIME TRACKING DATA]\n"
+            f"Total employees who logged time: {total}{more}\n{team_list}"
+        )
+        logger.info(f"Added Ajera team context for {total} employees")
+
+    # File location data (phase 2)
+    if file_location_data and file_location_data.get("status") == "found":
+        locations = file_location_data.get("locations", [])
+        loc_text = "\n".join([
+            f"  - {loc['path']} ({loc.get('drive', 'unknown drive')})"
+            for loc in locations
+        ])
+        candidates_text += f"\n\n[PROJECT FILE LOCATIONS]\n{loc_text}"
+
+    # Duplicate data (phase 2)
+    if duplicate_data and duplicate_data.get("status") == "checked":
+        duplicates = duplicate_data.get("duplicates", [])
+        if duplicates:
+            dup_text = "\n".join([
+                f"  - {d['path']} (matches: {d.get('match_reason', 'name')})"
+                for d in duplicates
+            ])
+            candidates_text += (
+                f"\n\n[DUPLICATE DIRECTORY DETECTION]\n"
+                f"Found {len(duplicates)} potential duplicates:\n{dup_text}"
+            )
+        else:
+            candidates_text += "\n\n[DUPLICATE DIRECTORY DETECTION]\nNo duplicates found."
+
+    return candidates_text
+
+
+def _log_query(request: QueryRequest, response: QueryResponse, router_result: RouterResult = None):
     """Log query to queries.log."""
     try:
         log_file = settings.queries_log_path
@@ -483,12 +599,13 @@ def _log_query(request: QueryRequest, response: QueryResponse):
 
         # Get employee_id_resolved from outer scope if available
         employee_id_for_log = getattr(query_documents, '_employee_id_resolved', request.employee_id)
-        
+
         log_entry = {
             "timestamp": datetime.utcnow().isoformat() + 'Z',
             "project_ids": request.project_ids,
             "employee_id": employee_id_for_log,
             "query": request.query,
+            "intents": [i.value for i in router_result.intents] if router_result else [],
             "top_chunk_ids": [c.chunk_id for c in response.citations],
             "confidence": response.confidence,
             "elapsed_ms": response.elapsed_ms,

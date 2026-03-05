@@ -8,7 +8,7 @@ A cite-first, retrieval-augmented knowledge system for engineering and construct
 - Frontend: React + TypeScript + Vite
 - Vector DB: ChromaDB (embedded, persistent)
 - LLM: Llama-3.2-3B-Instruct (Q6_K, GGUF), optimized for RTX 4090; deterministic temperature=0.0
-- Embeddings: `sentence-transformers` all-MiniLM-L6-v2 (384-d)
+- Embeddings: `nomic-ai/nomic-embed-text-v1.5` via sentence-transformers (task-prefixed query/document embeddings)
 - ERP Integration: Ajera unified JSON (77MB, 12,529 projects) for employee-scoped filtering
 
 ## Why AAA
@@ -50,7 +50,7 @@ Primary use cases:
 - Backend (`FastAPI`): Ingestion, embedding, indexing, and query orchestration
 - Vector Index (`ChromaDB`): Persistent local ANN index (HNSW) with project/employee metadata
 - LLM (`llama-cpp-python`): Strict JSON outputs, deterministic with temperature 0.0
-- Embeddings (`sentence-transformers`): Compact sentence vectors for fast similarity search
+- Embeddings (`nomic-ai/nomic-embed-text-v1.5` via sentence-transformers): Task-optimized embeddings with separate query/document prefixes
 - ERP Integration (Ajera): User-scoped filtering (employee→projects) for safer, more relevant results
 - Frontend (React + Vite): Search and Upload experiences with a professional UX and progress feedback
 

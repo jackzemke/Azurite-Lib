@@ -447,3 +447,171 @@ async def get_system_info():
         "data_directory": str(DATA_DIR),
         "chroma_size_mb": round(chroma_size / (1024**2), 2),
     }
+
+
+# ============================================================================
+# Ajera Sync
+# ============================================================================
+
+@router.post("/ajera/sync")
+async def trigger_ajera_sync():
+    """
+    Manually trigger an Ajera data sync.
+
+    Fetches latest employee/project/timesheet data from the Ajera API
+    and updates the local ajera_unified.json file.
+    """
+    from ..core.ajera_sync import run_ajera_sync
+
+    try:
+        result = run_ajera_sync()
+        return result
+    except Exception as e:
+        logger.error(f"Ajera sync endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@router.get("/ajera/sync/status")
+async def get_ajera_sync_status():
+    """Get the last sync timestamp and configuration status."""
+    ajera_path = settings.ajera_data_path_resolved
+
+    status_info = {
+        "configured": bool(settings.ajera_api_url),
+        "api_url": (settings.ajera_api_url[:50] + "...") if len(settings.ajera_api_url) > 50 else (settings.ajera_api_url or None),
+        "sync_interval_hours": settings.ajera_sync_interval_hours,
+        "data_file_exists": ajera_path.exists(),
+        "last_synced_at": None,
+        "employee_count": 0,
+        "project_count": 0,
+    }
+
+    if ajera_path.exists():
+        try:
+            with open(ajera_path) as f:
+                data = json.load(f)
+            metadata = data.get("metadata", {})
+            status_info["last_synced_at"] = metadata.get("synced_at")
+            status_info["employee_count"] = metadata.get("employee_count", 0)
+            status_info["project_count"] = metadata.get("project_count", 0)
+        except Exception:
+            pass
+
+    return status_info
+
+
+# ============================================================================
+# Directory Index (File Location / Duplicate Detection)
+# ============================================================================
+
+@router.post("/directory-index/scan")
+async def trigger_directory_scan():
+    """
+    Trigger a full scan of configured network drives.
+    Rebuilds the directory index from scratch.
+    """
+    from ..services import get_directory_index
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No network drives configured. Add drives to config.yaml under network_drives.drives"
+        )
+
+    try:
+        result = directory_index.scan_drives()
+        return result
+    except Exception as e:
+        logger.error(f"Directory scan failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+
+
+@router.get("/directory-index/status")
+async def get_directory_index_status():
+    """Get directory index status and last scan info."""
+    from ..services import get_directory_index
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        return {
+            "configured": False,
+            "message": "No network drives configured",
+            "drives": [],
+        }
+
+    stats = directory_index.get_stats()
+    last_scan = directory_index.get_last_scan()
+
+    return {
+        "configured": True,
+        "available": directory_index.is_available(),
+        "stats": stats,
+        "last_scan": last_scan,
+    }
+
+
+@router.get("/directory-index/search")
+async def search_directory_index(
+    q: str = Query(..., description="Search query (project name or ID)"),
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    """Test endpoint for directory index search."""
+    from ..services import get_directory_index
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        raise HTTPException(status_code=400, detail="Directory index not configured")
+
+    if not directory_index.is_available():
+        raise HTTPException(status_code=400, detail="No scan data available. Run POST /directory-index/scan first.")
+
+    results = directory_index.search_project_location(q, limit=limit)
+    return {"query": q, "count": len(results), "results": results}
+
+
+@router.get("/directory-index/duplicates")
+async def find_directory_duplicates(
+    project_id: str = Query(None, description="Specific project ID to check"),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Find duplicate project directories across drives."""
+    from ..services import get_directory_index
+
+    directory_index = get_directory_index()
+    if directory_index is None:
+        raise HTTPException(status_code=400, detail="Directory index not configured")
+
+    if not directory_index.is_available():
+        raise HTTPException(status_code=400, detail="No scan data available. Run POST /directory-index/scan first.")
+
+    results = directory_index.find_duplicates(project_id=project_id, limit=limit)
+    return {"count": len(results), "duplicates": results}
+
+
+# ============================================================================
+# Index Management
+# ============================================================================
+
+@router.post("/index/rebuild")
+async def rebuild_index():
+    """
+    Rebuild the ChromaDB index from saved chunks and embeddings on disk.
+
+    Deletes the current collection and re-indexes all projects from
+    data/chunks/ and data/embeddings/. Use this to recover from index
+    corruption (e.g. "Error finding id" errors).
+    """
+    from ..services import get_indexer
+
+    indexer = get_indexer()
+
+    try:
+        result = indexer.rebuild_from_disk(
+            chunks_dir=settings.chunks_path,
+            embeddings_dir=settings.embeddings_path,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Index rebuild failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Rebuild failed: {str(e)}")

@@ -9,7 +9,11 @@ from chromadb.config import Settings
 from typing import List, Dict, Optional
 from pathlib import Path
 import logging
+import json
 import os
+
+import numpy as np
+import pandas as pd
 
 # Disable ChromaDB telemetry to avoid posthog errors
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
@@ -50,7 +54,52 @@ class Indexer:
             },
         )
 
+        # Validate embedding dimensions match the current model.
+        # If the collection has stale embeddings from a previous model
+        # (e.g. 384-dim from all-MiniLM-L6-v2), queries will fail with
+        # "Collection expecting embedding with dimension of 384, got 768".
+        # Detect this early and reset the collection.
+        self._validate_embedding_dimensions(expected_dim=768)
+
         logger.info(f"Collection '{collection_name}' ready. Count: {self.collection.count()}")
+
+    def _validate_embedding_dimensions(self, expected_dim: int):
+        """Check that existing embeddings match the current model's dimension.
+
+        If a mismatch is detected (e.g. old 384-dim vectors vs new 768-dim
+        model), the stale collection is deleted and recreated empty.
+        Documents must be re-ingested after a reset.
+        """
+        count = self.collection.count()
+        if count == 0:
+            return
+
+        try:
+            sample = self.collection.peek(limit=1)
+            if not sample or not sample.get("embeddings") or not sample["embeddings"]:
+                return
+
+            stored_dim = len(sample["embeddings"][0])
+            if stored_dim == expected_dim:
+                return
+
+            logger.warning(
+                f"Embedding dimension mismatch: collection has {stored_dim}-dim vectors "
+                f"but current model produces {expected_dim}-dim. "
+                f"Resetting collection '{self.collection_name}' ({count} chunks will be lost). "
+                f"Documents must be re-ingested."
+            )
+            self.client.delete_collection(self.collection_name)
+            self.collection = self.client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={
+                    "hnsw:space": "cosine",
+                    "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+                },
+            )
+            logger.info(f"Collection '{self.collection_name}' recreated with correct dimensions")
+        except Exception as e:
+            logger.error(f"Error validating embedding dimensions: {e}")
 
     def upsert_chunks(self, chunks: List[Dict], embeddings: List[Dict]):
         """
@@ -411,6 +460,109 @@ class Indexer:
         else:
             logger.info(f"No chunks found for project {project_id}")
 
+    def reset_collection(self):
+        """Delete and recreate the collection. All data is lost."""
+        logger.warning(f"Resetting collection '{self.collection_name}'")
+        self.client.delete_collection(self.collection_name)
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={
+                "hnsw:space": "cosine",
+                "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+            },
+        )
+        logger.info(f"Collection '{self.collection_name}' recreated empty")
 
-# TODO: Add batch upsert for very large datasets (>10k chunks)
-# TODO: Implement hybrid search (combine with keyword search)
+    def rebuild_from_disk(self, chunks_dir: Path, embeddings_dir: Path) -> Dict:
+        """
+        Rebuild the entire ChromaDB collection from saved chunks and embeddings on disk.
+
+        Reads chunk JSON files from chunks_dir/{project_id}/*.json and
+        embedding parquet files from embeddings_dir/{project_id}.parquet,
+        then re-indexes everything into a fresh collection.
+
+        Returns:
+            Summary dict with projects rebuilt, total chunks, and any errors.
+        """
+        self.reset_collection()
+
+        summary = {"projects": [], "total_chunks": 0, "errors": []}
+
+        if not chunks_dir.exists():
+            summary["errors"].append(f"Chunks directory not found: {chunks_dir}")
+            return summary
+
+        # Each subdirectory in chunks_dir is a project
+        project_dirs = [d for d in sorted(chunks_dir.iterdir()) if d.is_dir()]
+        logger.info(f"Rebuilding index from {len(project_dirs)} project(s)")
+
+        for project_dir in project_dirs:
+            project_id = project_dir.name
+            try:
+                # Load chunks from JSON files
+                chunk_files = sorted(project_dir.glob("*.json"))
+                if not chunk_files:
+                    logger.info(f"Skipping {project_id}: no chunk files")
+                    continue
+
+                chunks = []
+                for chunk_file in chunk_files:
+                    with open(chunk_file) as f:
+                        chunks.append(json.load(f))
+
+                # Load embeddings from parquet
+                parquet_path = embeddings_dir / f"{project_id}.parquet"
+                if not parquet_path.exists():
+                    summary["errors"].append(f"{project_id}: parquet file not found, skipping")
+                    logger.warning(f"No embeddings parquet for {project_id}, skipping")
+                    continue
+
+                df = pd.read_parquet(parquet_path)
+
+                # Build chunk_id -> embedding_vector lookup
+                emb_lookup = {}
+                for _, row in df.iterrows():
+                    emb_lookup[row["chunk_id"]] = row["embedding_vector"]
+
+                # Match chunks to embeddings
+                matched_chunks = []
+                matched_embeddings = []
+                missing = 0
+                for chunk in chunks:
+                    vec = emb_lookup.get(chunk["chunk_id"])
+                    if vec is None:
+                        missing += 1
+                        continue
+                    matched_chunks.append(chunk)
+                    matched_embeddings.append({
+                        "embedding": np.array(vec, dtype=np.float32),
+                    })
+
+                if missing > 0:
+                    logger.warning(f"{project_id}: {missing} chunks had no matching embedding")
+
+                if not matched_chunks:
+                    summary["errors"].append(f"{project_id}: no chunks matched embeddings")
+                    continue
+
+                # Upsert into ChromaDB
+                self.upsert_chunks(matched_chunks, matched_embeddings)
+
+                summary["projects"].append({
+                    "project_id": project_id,
+                    "chunks": len(matched_chunks),
+                    "skipped": missing,
+                })
+                summary["total_chunks"] += len(matched_chunks)
+                logger.info(f"Rebuilt {project_id}: {len(matched_chunks)} chunks indexed")
+
+            except Exception as e:
+                msg = f"{project_id}: {e}"
+                summary["errors"].append(msg)
+                logger.error(f"Error rebuilding {project_id}: {e}")
+
+        logger.info(
+            f"Rebuild complete: {len(summary['projects'])} projects, "
+            f"{summary['total_chunks']} chunks, {len(summary['errors'])} errors"
+        )
+        return summary

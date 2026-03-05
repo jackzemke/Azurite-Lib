@@ -5,6 +5,7 @@ services:
       context: ./app/backend
       dockerfile: Dockerfile
     container_name: aaa-backend
+    user: root
     ports:
       - "8000:8000"
     volumes:
@@ -15,6 +16,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - CONFIG_PATH=/app/config.yaml
       - AAA_BASE_DIR=/
+      - AAA_FRONTEND_URL=http://localhost
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     env_file:
@@ -43,6 +45,7 @@ services:
       context: ./app/backend
       dockerfile: Dockerfile
     container_name: aaa-worker
+    user: root
     volumes:
       - ./data:/data
       - ./app/backend/config.yaml:/app/config.yaml:ro

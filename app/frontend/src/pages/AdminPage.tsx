@@ -42,10 +42,55 @@ interface AdminPageProps {
   onClose?: () => void
 }
 
+interface AnalyticsSummary {
+  queries: {
+    total_queries: number
+    queries_last_7_days: number
+    queries_last_30_days: number
+    unique_projects_queried: number
+    avg_response_time_ms: number
+    confidence_distribution: Record<string, number>
+    top_projects: { project_id: string; query_count: number }[]
+    avg_citations_per_query: number
+    queries_per_day: { date: string; count: number }[]
+  }
+  citations: {
+    total_clicks: number
+    clicks_last_7_days: number
+    top_clicked_files: { file_path: string; click_count: number }[]
+    top_clicked_projects: { project_id: string; click_count: number }[]
+  }
+  generated_at: string
+}
+
+interface DirectoryIndexStatus {
+  configured: boolean
+  available?: boolean
+  message?: string
+  drives?: string[]
+  stats?: {
+    initialized: boolean
+    total_directories: number
+    total_drives: number
+    unique_project_ids?: number
+    drives: string[]
+  }
+  last_scan?: {
+    started_at: string
+    completed_at?: string
+    total_directories: number
+    total_drives: number
+    status: string
+  } | null
+}
+
 export default function AdminPage({ onClose }: AdminPageProps) {
   const [services, setServices] = useState<ServiceStatus[]>([])
   const [logFiles, setLogFiles] = useState<LogFile[]>([])
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null)
+  const [dirIndexStatus, setDirIndexStatus] = useState<DirectoryIndexStatus | null>(null)
+  const [scanLoading, setScanLoading] = useState(false)
   const [selectedLog, setSelectedLog] = useState<string | null>(null)
   const [logContent, setLogContent] = useState<string>('')
   const [streamingLog, setStreamingLog] = useState<string | null>(null)
@@ -58,14 +103,18 @@ export default function AdminPage({ onClose }: AdminPageProps) {
   // Fetch all data
   const fetchData = useCallback(async () => {
     try {
-      const [servicesRes, logsRes, systemRes] = await Promise.all([
+      const [servicesRes, logsRes, systemRes, analyticsRes, dirIndexRes] = await Promise.all([
         axios.get(`${API_URL}/api/v1/admin/services`),
         axios.get(`${API_URL}/api/v1/admin/logs`),
         axios.get(`${API_URL}/api/v1/admin/system`),
+        axios.get(`${API_URL}/api/v1/analytics/summary`).catch(() => ({ data: null })),
+        axios.get(`${API_URL}/api/v1/admin/directory-index/status`).catch(() => ({ data: null })),
       ])
       setServices(servicesRes.data)
       setLogFiles(logsRes.data)
       setSystemInfo(systemRes.data)
+      setAnalytics(analyticsRes.data)
+      setDirIndexStatus(dirIndexRes.data)
     } catch (err) {
       console.error('Failed to fetch admin data:', err)
     } finally {
@@ -89,6 +138,19 @@ export default function AdminPage({ onClose }: AdminPageProps) {
       alert(err.response?.data?.detail || 'Action failed')
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  // Trigger directory index scan
+  const triggerScan = async () => {
+    setScanLoading(true)
+    try {
+      await axios.post(`${API_URL}/api/v1/admin/directory-index/scan`)
+      await fetchData()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Scan failed')
+    } finally {
+      setScanLoading(false)
     }
   }
 
@@ -243,6 +305,127 @@ export default function AdminPage({ onClose }: AdminPageProps) {
               </div>
             </div>
           )}
+
+          {/* Usage Metrics */}
+          {analytics && (
+            <div className="admin-card">
+              <h3>Usage Metrics</h3>
+              <div className="system-stats">
+                <div className="stat-row">
+                  <span>Queries</span>
+                  <span>{analytics.queries.total_queries.toLocaleString()} total</span>
+                </div>
+                <div className="stat-row">
+                  <span>Last 7d</span>
+                  <span>{analytics.queries.queries_last_7_days}</span>
+                </div>
+                <div className="stat-row">
+                  <span>Last 30d</span>
+                  <span>{analytics.queries.queries_last_30_days}</span>
+                </div>
+                <div className="stat-row">
+                  <span>Avg Time</span>
+                  <span>{(analytics.queries.avg_response_time_ms / 1000).toFixed(1)}s</span>
+                </div>
+                <div className="stat-row">
+                  <span>Avg Cites</span>
+                  <span>{analytics.queries.avg_citations_per_query}</span>
+                </div>
+                <div className="stat-row">
+                  <span>Clicks</span>
+                  <span>{analytics.citations.total_clicks} citation clicks</span>
+                </div>
+                <div className="stat-row">
+                  <span>Projects</span>
+                  <span>{analytics.queries.unique_projects_queried} queried</span>
+                </div>
+              </div>
+
+              {analytics.queries.confidence_distribution && Object.keys(analytics.queries.confidence_distribution).length > 0 && (
+                <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  <strong>Confidence: </strong>
+                  {Object.entries(analytics.queries.confidence_distribution).map(([level, count]) => (
+                    <span key={level} style={{ marginRight: '0.75rem' }}>
+                      {level}: {count}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {analytics.queries.top_projects.length > 0 && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <strong style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Top Projects:</strong>
+                  {analytics.queries.top_projects.slice(0, 5).map((p) => (
+                    <div key={p.project_id} className="stat-row" style={{ fontSize: '0.8rem' }}>
+                      <span style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.project_id}
+                      </span>
+                      <span>{p.query_count} queries</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Directory Index */}
+          <div className="admin-card">
+            <h3>Directory Index</h3>
+            <div className="system-stats">
+              {!dirIndexStatus || !dirIndexStatus.configured ? (
+                <div style={{ fontSize: '0.85rem', color: '#94a3b8', padding: '0.25rem 0' }}>
+                  Not configured. Add drives to config.yaml under network_drives.drives.
+                </div>
+              ) : (
+                <>
+                  <div className="stat-row">
+                    <span>Status</span>
+                    <span style={{ color: dirIndexStatus.available ? '#10b981' : '#f59e0b' }}>
+                      {dirIndexStatus.available ? 'Available' : 'No scan data'}
+                    </span>
+                  </div>
+                  {dirIndexStatus.stats && (
+                    <>
+                      <div className="stat-row">
+                        <span>Drives</span>
+                        <span>{dirIndexStatus.stats.drives.join(', ')}</span>
+                      </div>
+                      <div className="stat-row">
+                        <span>Directories</span>
+                        <span>{dirIndexStatus.stats.total_directories.toLocaleString()}</span>
+                      </div>
+                      {dirIndexStatus.stats.unique_project_ids !== undefined && dirIndexStatus.stats.unique_project_ids > 0 && (
+                        <div className="stat-row">
+                          <span>Project IDs</span>
+                          <span>{dirIndexStatus.stats.unique_project_ids.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {dirIndexStatus.last_scan && (
+                    <div className="stat-row">
+                      <span>Last Scan</span>
+                      <span>
+                        {dirIndexStatus.last_scan.completed_at
+                          ? new Date(dirIndexStatus.last_scan.completed_at).toLocaleString()
+                          : dirIndexStatus.last_scan.status}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button
+                      onClick={triggerScan}
+                      disabled={scanLoading}
+                      className="service-btn start"
+                      style={{ width: '100%' }}
+                    >
+                      {scanLoading ? 'Scanning...' : 'Scan Now'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
 
           {/* Services */}
           <div className="admin-card">

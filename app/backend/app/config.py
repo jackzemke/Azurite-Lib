@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     api_key: str = ""  # Empty = no auth (dev mode)
     frontend_url: str = "http://localhost:5173"
 
+    # --- Ajera API ---
+    ajera_api_url: str = ""
+    ajera_api_username: str = ""
+    ajera_api_password: str = ""
+    ajera_sync_interval_hours: int = 24  # 0 = disabled
+
+    # --- Network Drives (Directory Index) ---
+    network_drives_db_path: str = "data/index/directory_index.db"
+    network_drives_config: list = []  # List of drive dicts from YAML
+
     model_config = {
         "env_prefix": "AAA_",
         "env_file": ".env",
@@ -181,6 +191,8 @@ class Settings(BaseSettings):
             "db_dsn": ("database", "dsn"),
             "db_username": ("database", "username"),
             "db_password": ("database", "password"),
+            # network drives
+            "network_drives_db_path": ("network_drives", "db_path"),
         }
 
         for settings_key, yaml_path in yaml_mapping.items():
@@ -196,6 +208,12 @@ class Settings(BaseSettings):
                     break
             if val is not None:
                 data[settings_key] = val
+
+        # Special handling: network_drives.drives is a list, not a scalar
+        if "network_drives_config" not in data:
+            drives_list = yaml_config.get("network_drives", {}).get("drives", [])
+            if drives_list:
+                data["network_drives_config"] = drives_list
 
         return data
 
@@ -259,6 +277,10 @@ class Settings(BaseSettings):
     @property
     def project_lookup_path_resolved(self) -> Path:
         return self.resolve_path(self.project_lookup_path)
+
+    @property
+    def directory_index_db_path(self) -> Path:
+        return self.resolve_path(self.network_drives_db_path)
 
     @property
     def prompts_dir(self) -> Path:

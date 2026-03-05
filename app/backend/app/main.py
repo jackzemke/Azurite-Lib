@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 import logging
 
 from .config import settings
-from .api import upload, ingest, ingest_v2, query, health, ajera, jobs, admin
+from .api import upload, ingest, ingest_v2, query, health, ajera, jobs, admin, analytics
 from .core.ajera_loader import init_ajera_data
 from .core.project_mapper import init_project_mapper
 from .core.project_resolver import init_project_resolver
@@ -91,6 +91,38 @@ async def startup_event():
     init_project_resolver()
     logger.info("Initialized Unified Project Resolver")
 
+    # Log directory index configuration status
+    if settings.network_drives_config:
+        logger.info(f"Network drives configured: {len(settings.network_drives_config)} drives")
+        for drive in settings.network_drives_config:
+            logger.info(f"  - {drive.get('name', '?')}: {drive.get('mount_path', '?')} ({drive.get('drive_letter', '?')}:)")
+    else:
+        logger.info("No network drives configured (directory index disabled)")
+
+    # Initialize scheduled Ajera sync (if configured)
+    if settings.ajera_api_url and settings.ajera_sync_interval_hours > 0:
+        import threading
+        import time as _time
+
+        def _scheduled_sync():
+            """Run Ajera sync on a recurring schedule."""
+            from .core.ajera_sync import run_ajera_sync
+            interval_seconds = settings.ajera_sync_interval_hours * 3600
+            while True:
+                _time.sleep(interval_seconds)
+                try:
+                    logger.info("Starting scheduled Ajera sync...")
+                    result = run_ajera_sync()
+                    logger.info(f"Scheduled Ajera sync completed: {result.get('status')}")
+                except Exception as e:
+                    logger.error(f"Scheduled Ajera sync failed: {e}")
+
+        sync_thread = threading.Thread(target=_scheduled_sync, daemon=True, name="ajera-sync")
+        sync_thread.start()
+        logger.info(f"Started Ajera sync scheduler (every {settings.ajera_sync_interval_hours}h)")
+    else:
+        logger.info("Ajera API sync not configured or disabled")
+
 # Include routers
 app.include_router(upload.router, prefix="/api/v1", tags=["upload"])
 # Use enhanced ingestion (v2) - keeps old endpoint for backwards compatibility
@@ -106,6 +138,7 @@ app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 app.include_router(projects.router, prefix="/api/v1", tags=["projects"])
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
 
 
 @app.get("/")

@@ -5,7 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 python3.10-dev python3.10-venv python3-pip \
-    build-essential cmake \
+    build-essential cmake ninja-build git \
+    unixodbc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
@@ -13,17 +14,36 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
 WORKDIR /build
 
+# Create libcuda stub for build-time linking.
+# The real libcuda.so.1 is provided by the NVIDIA driver at runtime,
+# but the linker needs it at compile time. The devel image only ships
+# an unversioned stub, so we create the .so.1 symlink the linker expects.
+RUN ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH}
+
+# Use a venv so every pip install shares one site-packages.
+# This prevents the third install from re-downloading torch (CPU)
+# or re-building llama-cpp-python, since pip can see they're already
+# installed and satisfy the version constraints.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt .
 
-# Install Python deps.
+# Each pip install is a separate layer for better Docker caching.
+# If requirements.txt changes, torch and llama-cpp-python layers are
+# still cached (~25 min saved on rebuild).
+
 # 1. PyTorch with CUDA from official index
-# 2. llama-cpp-python compiled with CUDA (needs nvcc from devel image)
-# 3. Everything else from requirements.txt
-RUN pip install --no-cache-dir --prefix=/install \
-        torch --index-url https://download.pytorch.org/whl/cu121 && \
-    CMAKE_ARGS="-DGGML_CUDA=on" \
-    pip install --no-cache-dir --prefix=/install llama-cpp-python && \
-    pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cu121
+
+# 2. llama-cpp-python compiled against CUDA
+RUN CMAKE_ARGS="-DGGML_CUDA=on" \
+    pip install --no-cache-dir llama-cpp-python
+
+# 3. Everything else (torch and llama-cpp-python already satisfied, skipped)
+RUN pip install --no-cache-dir -r requirements.txt
 
 
 # ---- Runtime stage ----
@@ -37,13 +57,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 python3-pip \
     tesseract-ocr tesseract-ocr-eng \
     curl \
+    unixodbc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
-# Copy installed Python packages from builder
-COPY --from=builder /install /usr/local
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
