@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     base_dir: Path = Field(default=_DEFAULT_BASE_DIR)
 
     # --- Model ---
-    model_path: str = "data/models/Meta-Llama-3.1-8B-Instruct-Q6_K.gguf"
+    model_path: str = "data/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
     model_n_gpu_layers: int = 40
     model_n_threads: int = 8
     model_max_tokens: int = 1024
@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     # --- Data files ---
     ajera_data_path: str = "data/ajera_unified.json"
     project_lookup_path: str = "data/mappings/project_lookup.csv"
+    metadata_index_path: str = "data/metadata_index.json"
 
     # --- Security ---
     api_key: str = ""  # Empty = no auth (dev mode)
@@ -193,6 +194,8 @@ class Settings(BaseSettings):
             "db_password": ("database", "password"),
             # network drives
             "network_drives_db_path": ("network_drives", "db_path"),
+            # metadata
+            "metadata_index_path": ("paths", "metadata_index"),
         }
 
         for settings_key, yaml_path in yaml_mapping.items():
@@ -281,6 +284,10 @@ class Settings(BaseSettings):
     @property
     def directory_index_db_path(self) -> Path:
         return self.resolve_path(self.network_drives_db_path)
+
+    @property
+    def metadata_index_path_resolved(self) -> Path:
+        return self.resolve_path(self.metadata_index_path)
 
     @property
     def prompts_dir(self) -> Path:

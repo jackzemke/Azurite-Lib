@@ -1,15 +1,16 @@
+version: '3.8'
+
 services:
-  # ---------- Backend API ----------
   backend:
+    image: azurite-lib-backend:local
     build:
       context: ./app/backend
       dockerfile: Dockerfile
     container_name: aaa-backend
     user: root
-    ports:
-      - "8000:8000"
     volumes:
       - ./data:/data
+      - ./app/backend/app:/app/app
       - ./app/backend/config.yaml:/app/config.yaml:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -38,16 +39,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-  # ---------- RQ Worker (background ingestion jobs) ----------
   worker:
-    build:
-      context: ./app/backend
-      dockerfile: Dockerfile
+    image: azurite-lib-backend:local
     container_name: aaa-worker
     user: root
     volumes:
       - ./data:/data
+      - ./app/backend/app:/app/app
       - ./app/backend/config.yaml:/app/config.yaml:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -69,14 +69,17 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import rq; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     command: ["python", "-m", "rq.cli", "worker", "--url", "redis://redis:6379/0", "ingestion"]
 
-  # ---------- Redis (job queue) ----------
   redis:
     image: redis:7-alpine
     container_name: aaa-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -86,7 +89,6 @@ services:
       timeout: 5s
       retries: 3
 
-  # ---------- Frontend (nginx serving React + API proxy) ----------
   frontend:
     build:
       context: ./app/frontend
@@ -95,7 +97,7 @@ services:
         VITE_API_URL: ""
     container_name: aaa-frontend
     ports:
-      - "80:80"
+      - "3002:80"
     restart: unless-stopped
     depends_on:
       backend:
@@ -103,55 +105,3 @@ services:
 
 volumes:
   redis_data:
-
-# NOTES:
-#
-# 1. GPU Support:
-#    - Requires NVIDIA Container Toolkit installed on host
-#    - Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
-#    - Verify: docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
-#
-# 2. CPU Fallback:
-#    If GPU not available, remove the `deploy.resources` section from
-#    both backend and worker, and set in config.yaml:
-#      model:
-#        n_gpu_layers: 0
-#
-# 3. Model File:
-#    Before running, ensure model file exists at:
-#    ./data/models/Meta-Llama-3.1-8B-Instruct-Q6_K.gguf
-#
-#    If missing, backend runs in stub mode (deterministic test responses).
-#
-# 4. Environment:
-#    Copy app/backend/.env.example to app/backend/.env and fill in values.
-#    Env vars override config.yaml settings.
-#
-# 5. Ports:
-#    - 80:   Frontend (nginx — serves UI + proxies /api/ to backend)
-#    - 8000: Backend API (direct access, useful for debugging)
-#    - 6379: Redis (only exposed for debugging; remove in production)
-#
-# 6. Data Persistence:
-#    All data stored in ./data/ directory (bind-mounted):
-#    - raw_docs/:           Uploaded documents
-#    - chunks/:             Chunked JSON files
-#    - embeddings/:         Parquet files
-#    - index/chroma/:       Vector DB
-#    - models/:             LLM and embedding model files
-#    - logs/:               Query and ingestion logs
-#
-# 7. Build and Run:
-#    docker compose up --build -d
-#
-# 8. View Logs:
-#    docker compose logs -f backend
-#    docker compose logs -f worker
-#
-# 9. Stop:
-#    docker compose down
-#
-# 10. Clean Rebuild:
-#     docker compose down -v
-#     docker compose build --no-cache
-#     docker compose up -d

@@ -1,14 +1,15 @@
 """
-LLM Client using llama-cpp-python.
+LLM Client using llama-cpp-python with Ollama HTTP fallback.
 
-Handles local LLM inference with support for stub mode when model is absent.
-Supports both Llama-3.1 and Llama-3.2 instruct format.
+Tries local GGUF model first. If unavailable, falls back to Ollama API.
+If neither is available, runs in stub mode.
 """
 
 from pathlib import Path
 from typing import Dict, Optional
 import logging
 import json
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -17,37 +18,48 @@ try:
     from llama_cpp import Llama
     LLAMA_AVAILABLE = True
 except ImportError:
-    logger.warning("llama-cpp-python not installed. Running in stub mode.")
+    logger.warning("llama-cpp-python not installed.")
     LLAMA_AVAILABLE = False
 
 
+def _check_ollama(base_url: str) -> bool:
+    """Check if Ollama is reachable."""
+    try:
+        import httpx
+        resp = httpx.get(f"{base_url}/api/tags", timeout=3.0)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 class LLMClient:
-    """Client for local LLM inference."""
+    """Client for local LLM inference with Ollama fallback."""
 
     def __init__(self, config: Dict):
-        """
-        Initialize LLM client.
-
-        Args:
-            config: Config dict with model path and parameters
-        """
         self.config = config
         self.model_path = Path(config["model"]["path"])
         self.n_ctx = config["model"].get("n_ctx", 4096)
         self.stub_mode = False
+        self.use_ollama = False
+        self.ollama_base_url = os.environ.get("AAA_OLLAMA_URL", "http://localhost:11434")
+        self.ollama_model = os.environ.get("AAA_OLLAMA_MODEL", "llama3.2:3b")
         self.llm = None
 
-        # Check if model file exists
-        if not self.model_path.exists():
-            logger.warning(f"Model file not found: {self.model_path}")
-            logger.warning("Running in STUB MODE (deterministic test responses)")
-            self.stub_mode = True
-        elif not LLAMA_AVAILABLE:
-            logger.warning("llama-cpp-python not available")
-            logger.warning("Running in STUB MODE")
-            self.stub_mode = True
-        else:
+        # Try 1: local GGUF model
+        if self.model_path.exists() and LLAMA_AVAILABLE:
             self._load_model()
+            if self.llm is not None:
+                return
+
+        # Try 2: Ollama HTTP API
+        if _check_ollama(self.ollama_base_url):
+            self.use_ollama = True
+            logger.info(f"Using Ollama backend ({self.ollama_base_url}, model={self.ollama_model})")
+            return
+
+        # Fallback: stub mode
+        logger.warning("No LLM backend available (no GGUF model, no Ollama). Running in STUB MODE.")
+        self.stub_mode = True
 
     def _load_model(self):
         """Load LLM model."""
@@ -78,26 +90,16 @@ class LLMClient:
         temperature: Optional[float] = None,
         json_mode: bool = False,
     ) -> str:
-        """
-        Generate text from prompt.
-
-        Args:
-            prompt: Input prompt
-            max_tokens: Max tokens to generate (default from config)
-            temperature: Sampling temperature (default from config)
-            json_mode: If True, constrain output to valid JSON via grammar
-
-        Returns:
-            Generated text
-        """
         if self.stub_mode:
             return self._stub_response(prompt)
+
+        if self.use_ollama:
+            return self._generate_ollama(prompt, max_tokens, temperature, json_mode)
 
         max_tokens = max_tokens or self.config["model"]["max_tokens"]
         temperature = temperature if temperature is not None else self.config["model"]["temperature"]
 
         try:
-            # Llama-3.x instruct format (works for both 3.1 and 3.2)
             formatted_prompt = (
                 "<|start_header_id|>system<|end_header_id|>\n\n"
                 "You are a helpful assistant that outputs valid JSON only. "
@@ -106,7 +108,6 @@ class LLMClient:
                 f"{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             )
 
-            # Build generation kwargs
             gen_kwargs = dict(
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -115,7 +116,6 @@ class LLMClient:
                 echo=False,
             )
 
-            # JSON grammar constrains output to valid JSON objects
             if json_mode and hasattr(self.llm, 'grammar'):
                 try:
                     from llama_cpp import LlamaGrammar
@@ -147,32 +147,58 @@ ws     ::= ([ \t\n] ws)?'''
             logger.error(f"LLM generation failed: {e}")
             return self._stub_response(prompt)
 
+    def _generate_ollama(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        json_mode: bool = False,
+    ) -> str:
+        """Generate via Ollama HTTP API."""
+        import httpx
+
+        max_tokens = max_tokens or self.config["model"]["max_tokens"]
+        temperature = temperature if temperature is not None else self.config["model"]["temperature"]
+
+        payload = {
+            "model": self.ollama_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }
+        if json_mode:
+            payload["format"] = "json"
+
+        try:
+            resp = httpx.post(
+                f"{self.ollama_base_url}/api/generate",
+                json=payload,
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            result_text = resp.json().get("response", "").strip()
+            logger.debug(f"Ollama output (first 300 chars): {result_text[:300]}")
+            return result_text
+        except Exception as e:
+            logger.error(f"Ollama generation failed: {e}")
+            return self._stub_response(prompt)
+
     def generate_json(
         self,
         prompt: str,
         max_tokens: Optional[int] = None,
     ) -> Dict:
-        """
-        Generate JSON output from prompt.
-
-        Args:
-            prompt: Input prompt (should request JSON output)
-            max_tokens: Max tokens to generate
-
-        Returns:
-            Parsed JSON dict (never returns None or non-dict)
-        """
         text = self.generate(prompt, max_tokens=max_tokens, temperature=0.0, json_mode=True)
 
-        # Ensure text is a string
         if not isinstance(text, str):
             logger.error(f"generate() returned non-string: {type(text)}, value: {text}")
             return self._stub_json_response()
 
-        # Try to extract JSON from response
         json_str = None
         try:
-            # Find JSON block (between { and })
             start = text.find('{')
             end = text.rfind('}')
 
@@ -186,7 +212,6 @@ ws     ::= ([ \t\n] ws)?'''
             parsed = json.loads(json_str)
             logger.debug(f"JSON parsed successfully: type={type(parsed)}")
 
-            # Ensure parsed is a dict
             if not isinstance(parsed, dict):
                 logger.error(f"Parsed JSON is not a dict: {type(parsed)}, value: {parsed}")
                 return self._stub_json_response()
@@ -215,5 +240,5 @@ ws     ::= ([ \t\n] ws)?'''
         }
 
     def is_stub_mode(self) -> bool:
-        """Check if running in stub mode."""
-        return self.stub_mode
+        """Check if running in stub mode (no real LLM available)."""
+        return self.stub_mode and not self.use_ollama

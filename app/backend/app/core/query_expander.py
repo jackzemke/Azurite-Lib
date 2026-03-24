@@ -22,6 +22,10 @@ class QueryExpander:
         "purpose": ["objective", "scope of work", "project purpose"],
         "about": ["project description", "scope", "overview"],
         "overview": ["executive summary", "project description", "scope of work"],
+        "outcome": ["findings", "results", "conclusions", "recommendations"],
+        "outcomes": ["findings", "results", "conclusions", "recommendations"],
+        "result": ["findings", "outcomes", "conclusions"],
+        "results": ["findings", "outcomes", "conclusions"],
         
         # Location queries
         "where": ["location", "site address", "city", "property"],
@@ -51,10 +55,18 @@ class QueryExpander:
         "when": ["date", "dated", "year", "timeline"],
         "date": ["dated", "year", "completed"],
         
-        # Cost/budget queries  
+        # Cost/budget queries
         "cost": ["budget", "fee", "amount", "price", "invoice"],
         "budget": ["cost", "fee", "estimate", "amount"],
         "fee": ["cost", "amount", "invoice", "payment"],
+
+        # Project metadata expansions (for metadata-first search)
+        "nmed": ["New Mexico Environment Department", "environmental"],
+        "bia": ["Bureau of Indian Affairs"],
+        "epa": ["Environmental Protection Agency"],
+        "water system": ["water", "sewer", "infrastructure", "pipeline"],
+        "transfer station": ["solid waste", "landfill", "waste management"],
+        "day school": ["school", "education", "BIA"],
     }
     
     # Map query intents to document types most likely to have answers
@@ -64,6 +76,10 @@ class QueryExpander:
         "location": ["report", "proposal", "assessment", "cover"],
         "summary": ["proposal", "report", "scope", "executive summary"],
         "overview": ["proposal", "report", "scope"],
+        "outcome": ["report", "assessment", "summary", "findings"],
+        "outcomes": ["report", "assessment", "summary", "findings"],
+        "result": ["report", "assessment", "summary"],
+        "results": ["report", "assessment", "summary"],
         "cost": ["invoice", "proposal", "contract", "budget"],
         "fee": ["invoice", "proposal", "contract"],
         "date": ["contract", "report", "proposal", "letter"],
@@ -222,6 +238,11 @@ class QueryExpander:
                 "scope of work project description",
                 "work performed activities completed",
             ])
+            if "outcome" in query_lower or "result" in query_lower:
+                variations.extend([
+                    "key findings outcomes recommendations",
+                    "results conclusions summary",
+                ])
         elif intent == "identifier":
             variations.extend([
                 "project number job number contract",
@@ -235,3 +256,30 @@ class QueryExpander:
                 variations.append(cleaned)
         
         return variations[:4]  # Limit to 4 variations
+
+    def expand_for_metadata(self, query: str) -> str:
+        """Expand query for project metadata search.
+
+        Lighter expansion than document search since metadata chunks are
+        short and precise -- heavy expansion hurts precision.
+
+        Args:
+            query: Original user query
+
+        Returns:
+            Expanded query (max 3 additional terms)
+        """
+        query_lower = query.lower()
+        expanded_terms: Set[str] = set()
+
+        for keyword, expansions in self.EXPANSION_RULES.items():
+            if keyword in query_lower:
+                expanded_terms.update(expansions[:1])
+
+        if expanded_terms:
+            limited = list(expanded_terms)[:3]
+            expanded = f"{query} {' '.join(limited)}"
+            logger.info(f"Metadata expansion: '{query}' -> '{expanded}'")
+            return expanded
+
+        return query

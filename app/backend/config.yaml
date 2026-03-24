@@ -1,5 +1,5 @@
 model:
-  path: "data/models/Llama-3.2-3B-Instruct-Q6_K.gguf"
+  path: "data/models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
   n_gpu_layers: 40
   n_threads: 8
   max_tokens: 1024
@@ -17,6 +17,7 @@ paths:
   chunks: "data/chunks"
   embeddings: "data/embeddings"
   chroma_db: "data/index/chroma"
+  metadata_index: "data/metadata_index.json"
 
 logging:
   queries_log: "data/logs/queries.log"
@@ -39,11 +40,24 @@ index:
   similarity_threshold: 0.5
 
 database:
-  # HDP (Hybrid Data Pipeline) connection via ODBC DSN
+  # HDP ODBC DSN for direct SQL access to Ajera (AxProject, AxTransaction).
+  # DSN must be configured in the HDP driver's odbc.ini with
+  # Service, HybridDataPipelineDataSource, LogonID, Password.
+  # Override credentials at runtime via AAA_DB_USERNAME / AAA_DB_PASSWORD.
+  dsn: "AjeraHDP"
+
+ajera:
+  # Ajera REST API sync configuration.
   # Credentials should be set via environment variables:
-  #   AAA_DB_DSN, AAA_DB_USERNAME, AAA_DB_PASSWORD
+  #   AAA_AJERA_API_URL, AAA_AJERA_API_USERNAME, AAA_AJERA_API_PASSWORD
   # or in a .env file (see .env.example)
-  dsn: "Ajera"
+  #
+  # API URL includes the base64-encoded config query string.
+  # Get from Ajera: Utility > Setup Integrations > API Settings.
+  # SMA production:
+  #   api_url: "https://ajera.com/V004864/AjeraAPI.ashx?ew0KICAi..."
+  # Sync interval in hours (0 = disabled, manual only)
+  sync_interval_hours: 0
 
 network_drives:
   # Directory index configuration for file location & duplicate detection

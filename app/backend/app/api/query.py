@@ -7,14 +7,16 @@ from pathlib import Path
 import time
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+import re
+from typing import Optional
 
 from ..config import settings
-from ..schemas.models import QueryRequest, QueryResponse, Citation
+from ..schemas.models import QueryRequest, QueryResponse, Citation, ProjectResult
 from ..core.ajera_loader import get_ajera_data
 from ..core.project_resolver import get_project_resolver
 from ..core.query_router import classify_query, QueryIntent, RouterResult
-from ..services import get_embedder, get_indexer, get_llm_client, get_reranker, get_query_expander, get_directory_index
+from ..services import get_embedder, get_indexer, get_llm_client, get_reranker, get_query_expander, get_directory_index, get_metadata_indexer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,6 +95,102 @@ async def query_documents(request: QueryRequest):
                     project_ids_to_search = None
         
         # Expand query for better semantic matching
+        router_result = classify_query(request.query)
+
+        # PROJECT_SEARCH: primary flow for metadata-based project finding
+        project_search_result = _handle_project_search(request, router_result, start_time)
+        if project_search_result is not None:
+            _log_query(
+                request,
+                project_search_result,
+                router_result,
+                employee_id_resolved=employee_id_resolved,
+                retrieval_count=len(project_search_result.projects or []),
+                used_fallback=False,
+            )
+            return project_search_result
+
+        is_team_query = router_result.is_team_query
+        is_broad_query = router_result.is_broad_query
+        retrieval_k = min(request.k * 2, 15) if is_broad_query else request.k
+
+        # Run intent handlers early so deterministic paths can short-circuit LLM.
+        personnel_data = _handle_personnel(request, router_result)
+        file_location_data = _handle_file_location(request, router_result)
+        duplicate_data = _handle_duplicate_detection(request, router_result)
+        ajera_team_data = personnel_data  # backward compat alias
+
+        employee_history_data = _handle_employee_history(request, router_result, employee_id_resolved, force_ajera=request.force_ajera_search)
+
+        if employee_history_data:
+            requested_count = employee_history_data["requested_count"]
+            recent_projects = employee_history_data["recent_projects"]
+            project_lines = "\n".join([
+                f"{idx + 1}. {proj['name']}"
+                + (f" [{proj['file_id']}]" if proj.get('file_id') else "")
+                + (f" - last activity {proj['last_activity']}" if proj.get('last_activity') else "")
+                for idx, proj in enumerate(recent_projects)
+            ])
+
+            response = QueryResponse(
+                answer=(
+                    f"According to Ajera timesheets, the last {min(requested_count, len(recent_projects))} "
+                    f"project{'s' if min(requested_count, len(recent_projects)) != 1 else ''} worked on by "
+                    f"{employee_history_data['employee_name']} {'were' if len(recent_projects) != 1 else 'was'}:\n\n"
+                    f"{project_lines}"
+                ),
+                citations=[],
+                confidence="high",
+                elapsed_ms=int((time.time() - start_time) * 1000),
+                stub_mode=llm_client.is_stub_mode(),
+                intents=[i.value for i in router_result.intents],
+                personnel_data=employee_history_data,
+                file_location=file_location_data,
+                duplicate_info=duplicate_data,
+            )
+            _log_query(
+                request,
+                response,
+                router_result,
+                employee_id_resolved=employee_id_resolved,
+                retrieval_count=0,
+                used_fallback=False,
+            )
+            return response
+
+        # Deterministic lane first for locate queries.
+        if router_result.has_file_location and file_location_data and file_location_data.get("status") == "found":
+            locations = file_location_data.get("locations", [])
+            location_lines = "\n".join([
+                f"- {loc['path']} ({loc.get('drive_name') or loc.get('drive_letter', 'unknown drive')})"
+                for loc in locations
+            ])
+
+            response = QueryResponse(
+                answer=(
+                    "I found matching project file locations in the directory index:\n\n"
+                    f"{location_lines}"
+                ),
+                citations=[],
+                confidence="high",
+                elapsed_ms=int((time.time() - start_time) * 1000),
+                stub_mode=llm_client.is_stub_mode(),
+                intents=[i.value for i in router_result.intents],
+                personnel_data=personnel_data,
+                file_location=file_location_data,
+                duplicate_info=duplicate_data,
+            )
+            _log_query(
+                request,
+                response,
+                router_result,
+                employee_id_resolved=employee_id_resolved,
+                retrieval_count=0,
+                used_fallback=False,
+            )
+            return response
+
+        # Expand query for better semantic matching
         expanded_query = query_expander.expand_query(request.query)
         
         # Get document type hints for boosting relevant document types
@@ -102,12 +200,6 @@ async def query_documents(request: QueryRequest):
         
         # Embed expanded query (uses search_query: prefix for nomic model)
         query_embedding = embedder.embed_query(expanded_query)
-
-        # Classify query intent (rule-based, ~0ms)
-        router_result = classify_query(request.query)
-        is_team_query = router_result.is_team_query
-        is_broad_query = router_result.is_broad_query
-        retrieval_k = min(request.k * 2, 15) if is_broad_query else request.k
 
         # Fetch extra candidates for cross-encoder reranking
         fetch_k = max(retrieval_k * 3, 20)
@@ -179,12 +271,6 @@ async def query_documents(request: QueryRequest):
         else:
             logger.warning(f"[RETRIEVAL] No chunks found for query: '{request.query}'")
         
-        # Run intent handlers
-        personnel_data = _handle_personnel(request, router_result)
-        file_location_data = _handle_file_location(request, router_result)
-        duplicate_data = _handle_duplicate_detection(request, router_result)
-        ajera_team_data = personnel_data  # backward compat alias
-
         if not retrieved_chunks:
             # For team queries with no docs, return Ajera team if available
             if is_team_query and ajera_team_data:
@@ -211,7 +297,14 @@ async def query_documents(request: QueryRequest):
                     file_location=file_location_data,
                     duplicate_info=duplicate_data,
                 )
-                _log_query(request, response, router_result)
+                _log_query(
+                    request,
+                    response,
+                    router_result,
+                    employee_id_resolved=employee_id_resolved,
+                    retrieval_count=0,
+                    used_fallback=True,
+                )
                 return response
 
             # No chunks found - provide fallback with Ajera project info
@@ -254,7 +347,14 @@ async def query_documents(request: QueryRequest):
                 file_location=file_location_data,
                 duplicate_info=duplicate_data,
             )
-            _log_query(request, response, router_result)
+            _log_query(
+                request,
+                response,
+                router_result,
+                employee_id_resolved=employee_id_resolved,
+                retrieval_count=0,
+                used_fallback=True,
+            )
             return response
 
         # Build QA prompt
@@ -288,7 +388,7 @@ async def query_documents(request: QueryRequest):
 
         # Format chat history
         history_text = "None" if not request.chat_history else "\n".join([
-            f"Q: {h['query']}\nA: {h['answer']}"
+            f"Q: {h.get('query', '')}\nA: {h.get('answer', '')}"
             for h in request.chat_history[-3:]  # Last 3 exchanges
         ])
         
@@ -408,7 +508,14 @@ async def query_documents(request: QueryRequest):
         )
 
         # Log query
-        _log_query(request, response, router_result)
+        _log_query(
+            request,
+            response,
+            router_result,
+            employee_id_resolved=employee_id_resolved,
+            retrieval_count=len(retrieved_chunks),
+            used_fallback=False,
+        )
 
         return response
 
@@ -449,6 +556,130 @@ def _handle_personnel(request: QueryRequest, router_result: RouterResult):
         logger.warning(f"Error getting Ajera team data: {e}")
 
     return None
+
+
+def _handle_employee_history(request: QueryRequest, router_result: RouterResult, employee_id_resolved: str, force_ajera: Optional[bool] = None):
+    """Handle employee-scoped history queries directly from Ajera timesheets."""
+    if not employee_id_resolved or not _is_employee_history_query(request.query, router_result, force_ajera=force_ajera):
+        return None
+
+    try:
+        ajera = get_ajera_data()
+        employee_name = ajera.get_employee_name(employee_id_resolved)
+        if not employee_name or not ajera.data:
+            return None
+
+        requested_count = _extract_requested_project_count(request.query)
+        emp_data = ajera.data.get("employee_to_projects", {}).get(str(employee_id_resolved), {})
+        timeline = emp_data.get("timeline", {})
+        project_keys = emp_data.get("projects", [])
+
+        # Build projects with deduplication.
+        # Prefer business identity (file_id/name) over raw project_key to avoid
+        # returning the same visible project multiple times.
+        seen_keys = set()
+        recent_projects = []
+        for project_key in project_keys:
+            entries = timeline.get(project_key, [])
+            dates = [entry.get("date") for entry in entries if entry.get("date")]
+            last_activity = max(dates) if dates else None
+
+            project_info = ajera.get_project_info(project_key) or {}
+            metadata = project_info.get("metadata", {})
+            file_id = str(metadata.get("project_id") or "").strip()
+            name = (project_info.get("name") or f"Project {project_key}").strip()
+
+            dedupe_key = (file_id.lower(), name.lower()) if (file_id or name) else (str(project_key),)
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            recent_projects.append({
+                "project_key": project_key,
+                "file_id": metadata.get("project_id"),
+                "name": name,
+                "last_activity": last_activity,
+            })
+
+        # Sort by most recent activity and limit to requested count
+        recent_projects.sort(key=lambda project: project.get("last_activity") or "", reverse=True)
+        recent_projects = recent_projects[:requested_count]
+
+        if not recent_projects:
+            return None
+
+        return {
+            "mode": "employee_history",
+            "employee_id": employee_id_resolved,
+            "employee_name": employee_name,
+            "requested_count": requested_count,
+            "total_projects": len(seen_keys),  # Total unique projects for employee
+            "recent_projects": recent_projects,
+        }
+    except Exception as e:
+        logger.warning(f"Error getting employee history data: {e}")
+        return None
+
+
+def _is_employee_history_query(query: str, router_result: RouterResult, force_ajera: Optional[bool] = None) -> bool:
+    """Return True when the query is asking about an employee's project history."""
+    # Allow manual override
+    if force_ajera is True:
+        return True
+    if force_ajera is False:
+        return False
+
+    query_lower = query.lower()
+    
+    # Broader history patterns: asking about work DONE BY the employee
+    history_patterns = [
+        r"\b(last|latest|recent|most recent)\s+\d*\s*(projects?|assignments?)",
+        r"\b(last|latest|recent|most recent)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s*(projects?|assignments?)",
+        r"\b(projects?|assignments?)\s+of\s+([a-z]+\s*){1,4}",
+        r"\b(projects?|assignments?)\s+(this|the)\s+(person|individual|employee|workers?)\s+(worked on|was involved in|did)",
+        r"(worked|has worked|did work)\s+on\s+(what|which)",
+        r"\bhistory\b.*\b(projects?|assignments?)",
+        r"\b(projects?|work|assignments?)\s+of\s+(this|the)\s+(person|individual|employee)",
+        r"\bexperience\b.*\b(projects?|work|assignments?)",
+        r"\b(what|which)\s+(projects?|work|assignments?)\s+(this|the)\s+(person|employee|individual)",
+        r"\b(past|previous)\s+(projects?|work|assignments?)",
+    ]
+
+    pattern_match = any(re.search(pattern, query_lower) for pattern in history_patterns)
+
+    # Prefer explicit pattern matches; fallback to router signal when it's already personnel intent.
+    if pattern_match:
+        return True
+
+    return router_result.has_personnel and any(
+        token in query_lower for token in ["project", "projects", "assignment", "assignments", "worked on", "history"]
+    )
+
+
+def _extract_requested_project_count(query: str, default: int = 3, maximum: int = 10) -> int:
+    """Extract a small requested count from natural language such as 'last three projects'."""
+    digit_match = re.search(r"\b(\d{1,2})\b", query)
+    if digit_match:
+        return min(max(int(digit_match.group(1)), 1), maximum)
+
+    word_to_number = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    }
+    query_lower = query.lower()
+    for word, value in word_to_number.items():
+        if re.search(rf"\b{word}\b", query_lower):
+            return min(value, maximum)
+
+    return default
 
 
 def _handle_file_location(request: QueryRequest, router_result: RouterResult):
@@ -536,6 +767,265 @@ def _handle_duplicate_detection(request: QueryRequest, router_result: RouterResu
         }
 
 
+def _handle_project_search(request: QueryRequest, router_result: RouterResult, start_time: float) -> Optional[QueryResponse]:
+    """Handle PROJECT_SEARCH intent: semantic search over project metadata."""
+    if not router_result.has_project_search:
+        return None
+
+    try:
+        embedder = get_embedder()
+        metadata_indexer = get_metadata_indexer()
+        llm_client = get_llm_client()
+        query_expander = get_query_expander()
+
+        is_team_query = router_result.is_team_query or router_result.has_personnel
+
+        # Resolve conversational references like "that project" for personnel queries.
+        # Prefer explicit request.project_ids; otherwise infer from the latest answer.
+        resolved_project_ids = list(request.project_ids or [])
+        if (
+            not resolved_project_ids
+            and is_team_query
+            and _is_contextual_project_reference(request.query)
+        ):
+            inferred_project_id = _infer_project_id_from_chat_history(request.chat_history)
+            if inferred_project_id:
+                resolved_project_ids = [inferred_project_id]
+                logger.info(
+                    f"[PROJECT_SEARCH] Resolved contextual follow-up to project_id={inferred_project_id}"
+                )
+
+        # If we have one explicit project id (request or inferred), use direct lookup.
+        raw_matches = []
+        if len(resolved_project_ids) == 1:
+            direct_match = metadata_indexer.get_project_by_id(resolved_project_ids[0])
+            if direct_match:
+                raw_matches = [direct_match]
+            else:
+                logger.info(
+                    f"[PROJECT_SEARCH] Direct metadata lookup missed project_id={resolved_project_ids[0]}, falling back to semantic search"
+                )
+
+        # Semantic search fallback / default path
+        if not raw_matches:
+            # Expand query for metadata search (lighter expansion)
+            expanded_query = query_expander.expand_for_metadata(request.query)
+
+            # Embed and search metadata collection — fetch more candidates than needed
+            query_embedding = embedder.embed_query(expanded_query)
+            raw_matches = metadata_indexer.query(query_embedding=query_embedding, top_k=min(request.k * 2, 10))
+
+        # Filter by cosine distance — only keep genuinely relevant results.
+        # Cosine distance: 0 = identical, 2 = opposite.
+        # With small collections, embeddings are compressed — use tighter threshold.
+        DISTANCE_THRESHOLD = 0.55
+        matches = [m for m in raw_matches if m.get("distance", 2.0) < DISTANCE_THRESHOLD]
+
+        # Also drop results that are much worse than the best match.
+        # E.g. best=0.30 → cut anything beyond 0.30 + 0.25 = 0.55 gap from best.
+        if matches and len(matches) > 1:
+            best_dist = matches[0].get("distance", 0.0)
+            matches = [m for m in matches if m.get("distance", 2.0) <= best_dist + 0.25]
+
+        # If nothing passed the threshold, keep only the single best if it's
+        # at least somewhat related (< 1.0), so the user gets *something*.
+        if not matches and raw_matches and raw_matches[0].get("distance", 2.0) < 1.0:
+            matches = [raw_matches[0]]
+
+        # Cap to requested k
+        matches = matches[:request.k]
+
+        raw_dists = [f"{m.get('distance', 0):.3f}" for m in raw_matches[:6]]
+        kept_dists = [f"{m.get('distance', 0):.3f}" for m in matches]
+        logger.info(
+            f"[PROJECT_SEARCH] raw={len(raw_matches)} dists={raw_dists} | "
+            f"kept={len(matches)} dists={kept_dists} (threshold={DISTANCE_THRESHOLD})"
+        )
+
+        if not matches:
+            return QueryResponse(
+                answer="No matching projects found in the metadata index.",
+                citations=[],
+                confidence="low",
+                elapsed_ms=int((time.time() - start_time) * 1000),
+                stub_mode=llm_client.is_stub_mode(),
+                intents=[i.value for i in router_result.intents],
+                projects=[],
+            )
+
+        # Build ProjectResult list and LLM candidates text
+        projects_out = []
+        candidates_lines = []
+        team_data_all = {}
+
+        from ..core.project_mapper import get_project_mapper
+        from ..core.ajera_loader import get_ajera_data
+
+        for match in matches:
+            meta = match["metadata"]
+            project_id = meta.get("project_id", "")
+
+            # Resolve Ajera team data
+            team_count = None
+            try:
+                mapper = get_project_mapper()
+                ajera = get_ajera_data()
+                project_key = mapper.get_project_key(project_id)
+
+                resolved_team_key = None
+                if project_key:
+                    # Prefer direct match when parent key has time entries.
+                    if ajera.data and project_key in ajera.data.get("project_to_employees", {}):
+                        resolved_team_key = project_key
+                    else:
+                        # Fallback: some archive IDs map to parent keys while
+                        # time entries live on child keys.
+                        for child_key in mapper.get_children_keys(project_key):
+                            if ajera.data and child_key in ajera.data.get("project_to_employees", {}):
+                                resolved_team_key = child_key
+                                break
+
+                # Last resort: file ID itself may be an Ajera key.
+                if not resolved_team_key and ajera.data and project_id in ajera.data.get("project_to_employees", {}):
+                    resolved_team_key = project_id
+
+                if resolved_team_key:
+                    team = ajera.get_project_team_with_hours(resolved_team_key)
+                    if team:
+                        team_count = len(team)
+                        team_data_all[project_id] = {
+                            "total_employees": team_count,
+                            "top_employees": [
+                                {"employee_id": m["employee_id"], "name": m["name"], "total_hours": m["total_hours"]}
+                                for m in team[:10]
+                            ],
+                        }
+                elif project_key:
+                    logger.debug(
+                        f"Team lookup: mapped project_id={project_id} to parent key {project_key}, "
+                        "but no Ajera time-bearing key found"
+                    )
+            except Exception as e:
+                logger.debug(f"Team data lookup failed for {project_id}: {e}")
+
+            pr = ProjectResult(
+                project_id=project_id,
+                project_name=meta.get("project_name", ""),
+                department=meta.get("department") or None,
+                client=meta.get("client") or None,
+                start_date=meta.get("start_date") or None,
+                end_date=meta.get("end_date") or None,
+                scope_type=meta.get("scope_type") or None,
+                full_path=meta.get("full_path") or None,
+                team_count=team_count,
+                distance=match.get("distance"),
+            )
+            projects_out.append(pr)
+
+            # Build candidate text for LLM
+            line = match["text"]
+            if team_count:
+                line += f"\nTeam: {team_count} members logged hours"
+                # Include full team list for personnel queries
+                if is_team_query and project_id in team_data_all:
+                    team_lines = "\n".join([
+                        f"  - {emp['name']} (ID {emp['employee_id']}): {emp['total_hours']} hours"
+                        for emp in team_data_all[project_id]["top_employees"]
+                    ])
+                    line += f"\nTeam members:\n{team_lines}"
+            elif is_team_query:
+                # Explicitly signal absence so the LLM doesn't invent staff counts/names
+                line += "\nTeam data: Not available in Ajera for this project."
+            candidates_lines.append(line)
+
+        # Build prompt for LLM
+        prompt_template = load_prompt_template("project_search_prompt")
+
+        history_text = "None" if not request.chat_history else "\n".join([
+            f"Q: {h.get('query', '')}\nA: {h.get('answer', '')}"
+            for h in request.chat_history[-3:]
+        ])
+
+        candidates_text = "\n\n---\n\n".join(candidates_lines)
+
+        prompt = prompt_template.replace("<<CHAT_HISTORY>>", history_text)
+        prompt = prompt.replace("<<USER_QUERY>>", request.query)
+        prompt = prompt.replace("<<CANDIDATES>>", candidates_text)
+
+        llm_output = llm_client.generate_json(prompt, max_tokens=1024)
+
+        if not isinstance(llm_output, dict):
+            llm_output = {"answer": "Found matching projects but could not generate summary.", "confidence": "medium"}
+
+        answer = llm_output.get("answer", "Found matching projects.")
+        confidence = llm_output.get("confidence", "medium")
+
+        # Use relevant_ids from LLM to filter down to only the projects it
+        # actually selected as matches. This lets the LLM do semantic filtering
+        # rather than relying solely on distance thresholds.
+        relevant_ids = llm_output.get("relevant_ids")
+        if relevant_ids and isinstance(relevant_ids, list):
+            relevant_set = set(str(rid) for rid in relevant_ids)
+            filtered_projects = [p for p in projects_out if p.project_id in relevant_set]
+            filtered_team = {k: v for k, v in team_data_all.items() if k in relevant_set}
+            logger.info(
+                f"[PROJECT_SEARCH] LLM selected {len(filtered_projects)}/{len(projects_out)} "
+                f"projects via relevant_ids: {relevant_ids}"
+            )
+        else:
+            filtered_projects = projects_out
+            filtered_team = team_data_all
+
+        response = QueryResponse(
+            answer=answer,
+            citations=[],
+            confidence=confidence,
+            elapsed_ms=int((time.time() - start_time) * 1000),
+            stub_mode=llm_client.is_stub_mode(),
+            intents=[i.value for i in router_result.intents],
+            projects=filtered_projects,
+            team_data=filtered_team if filtered_team else None,
+        )
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Project search failed: {e}")
+        return None
+
+
+def _is_contextual_project_reference(query: str) -> bool:
+    """Return True when query refers to a previously mentioned project."""
+    q = (query or "").strip().lower()
+    if not q:
+        return False
+
+    patterns = [
+        r"\bthat project\b",
+        r"\bthat one\b",
+        r"\bon that project\b",
+        r"\bon that one\b",
+        r"\bwho worked on that\b",
+        r"\bwho was on that\b",
+    ]
+    return any(re.search(pattern, q) for pattern in patterns)
+
+
+def _infer_project_id_from_chat_history(chat_history) -> Optional[str]:
+    """Infer most recent project ID from chat history answers."""
+    if not chat_history:
+        return None
+
+    for turn in reversed(chat_history):
+        answer = str(turn.get("answer", ""))
+        # Ajera/file IDs are typically 6-8 digits in this workspace.
+        ids = re.findall(r"\b\d{6,8}\b", answer)
+        if ids:
+            return ids[0]
+
+    return None
+
+
 def _merge_supplementary_context(
     candidates_text: str,
     personnel_data,
@@ -568,7 +1058,7 @@ def _merge_supplementary_context(
     if file_location_data and file_location_data.get("status") == "found":
         locations = file_location_data.get("locations", [])
         loc_text = "\n".join([
-            f"  - {loc['path']} ({loc.get('drive', 'unknown drive')})"
+            f"  - {loc['path']} ({loc.get('drive_name') or loc.get('drive_letter', 'unknown drive')})"
             for loc in locations
         ])
         candidates_text += f"\n\n[PROJECT FILE LOCATIONS]\n{loc_text}"
@@ -591,22 +1081,32 @@ def _merge_supplementary_context(
     return candidates_text
 
 
-def _log_query(request: QueryRequest, response: QueryResponse, router_result: RouterResult = None):
+def _log_query(
+    request: QueryRequest,
+    response: QueryResponse,
+    router_result: RouterResult = None,
+    employee_id_resolved: str = None,
+    retrieval_count: int = 0,
+    used_fallback: bool = False,
+):
     """Log query to queries.log."""
     try:
         log_file = settings.queries_log_path
         log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Get employee_id_resolved from outer scope if available
-        employee_id_for_log = getattr(query_documents, '_employee_id_resolved', request.employee_id)
+        employee_id_for_log = employee_id_resolved or request.employee_id
+        intent_class = _get_primary_intent_class(router_result)
 
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + 'Z',
+            "timestamp": datetime.now(timezone.utc).isoformat() + 'Z',
             "project_ids": request.project_ids,
             "employee_id": employee_id_for_log,
             "query": request.query,
             "intents": [i.value for i in router_result.intents] if router_result else [],
+            "intent_class": intent_class,
             "top_chunk_ids": [c.chunk_id for c in response.citations],
+            "retrieval_count": retrieval_count,
+            "fallback_used": used_fallback,
             "confidence": response.confidence,
             "elapsed_ms": response.elapsed_ms,
             "stub_mode": response.stub_mode,
@@ -617,3 +1117,15 @@ def _log_query(request: QueryRequest, response: QueryResponse, router_result: Ro
 
     except Exception as e:
         logger.error(f"Failed to log query: {e}")
+
+
+def _get_primary_intent_class(router_result: RouterResult = None) -> str:
+    """Return a single primary intent class for observability dashboards."""
+    if not router_result or not router_result.intents:
+        return QueryIntent.DOCUMENT_QA.value
+
+    for intent in router_result.intents:
+        if intent != QueryIntent.DOCUMENT_QA:
+            return intent.value
+
+    return QueryIntent.DOCUMENT_QA.value

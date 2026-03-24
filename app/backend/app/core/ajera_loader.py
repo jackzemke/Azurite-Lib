@@ -315,8 +315,21 @@ class AjeraData:
         """Get Ajera data metadata (counts, date ranges, etc.)."""
         if not self.data:
             return {}
-        
         return self.data.get("metadata", {})
+
+    def get_project_file_id(self, project_key: str) -> Optional[str]:
+        """Get the file system ID (prjID) from embedded project metadata."""
+        proj_data = self.data.get("project_to_employees", {}).get(str(project_key)) if self.data else None
+        if not proj_data:
+            return None
+        return proj_data.get("metadata", {}).get("project_id")
+
+    def get_project_parent_key(self, project_key: str) -> Optional[str]:
+        """Get the parent/master project key from embedded project metadata."""
+        proj_data = self.data.get("project_to_employees", {}).get(str(project_key)) if self.data else None
+        if not proj_data:
+            return None
+        return proj_data.get("metadata", {}).get("parent_project_key")
     
     def reload(self) -> None:
         """Reload data from file (for periodic refresh)."""

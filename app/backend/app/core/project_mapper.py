@@ -51,7 +51,11 @@ class ProjectMapper:
         
         # Name-based search index (lowercase name -> list of project keys)
         self.name_index: Dict[str, List[str]] = {}
-        
+
+        # Parent-child relationship maps
+        self.child_to_parent: Dict[str, str] = {}       # child prjKey -> parent prjKey
+        self.parent_to_children: Dict[str, List[str]] = {}  # parent prjKey -> [child prjKeys]
+
         self._load_mapping()
     
     def _load_mapping(self) -> None:
@@ -91,8 +95,19 @@ class ProjectMapper:
                     if name_lower not in self.name_index:
                         self.name_index[name_lower] = []
                     self.name_index[name_lower].append(project_key)
-            
-            logger.info(f"✓ Loaded project mapping: {len(self.key_to_id)} projects")
+
+                    # Build parent-child maps (column added by ajera_sync)
+                    parent_key = row.get("ParentProjectKey", "").strip()
+                    if parent_key and parent_key != project_key:
+                        self.child_to_parent[project_key] = parent_key
+                        if parent_key not in self.parent_to_children:
+                            self.parent_to_children[parent_key] = []
+                        self.parent_to_children[parent_key].append(project_key)
+
+            logger.info(
+                f"Loaded project mapping: {len(self.key_to_id)} projects, "
+                f"{len(self.child_to_parent)} child-parent links"
+            )
             
         except Exception as e:
             logger.error(f"Failed to load project mapping: {e}")
@@ -279,8 +294,42 @@ class ProjectMapper:
         """Get mapping statistics."""
         return {
             "total_projects": len(self.key_to_id),
-            "unique_descriptions": len(self.name_index)
+            "unique_descriptions": len(self.name_index),
+            "child_parent_links": len(self.child_to_parent),
         }
+
+    def resolve_child_to_file_id(self, child_key: str) -> Optional[str]:
+        """
+        Resolve a child/phase prjKey to a file system ID (prjID).
+
+        Walks up the parent chain if the child itself doesn't have
+        a meaningful file system ID.
+
+        Args:
+            child_key: Child/phase Ajera ProjectKey
+
+        Returns:
+            File system ID (prjID) or None
+        """
+        current = str(child_key)
+        # Try direct lookup first, then walk up (max 5 levels)
+        for _ in range(6):
+            file_id = self.key_to_id.get(current)
+            if file_id:
+                return file_id
+            parent = self.child_to_parent.get(current)
+            if not parent:
+                break
+            current = parent
+        return None
+
+    def get_parent_key(self, child_key: str) -> Optional[str]:
+        """Get the parent/master project key for a child project."""
+        return self.child_to_parent.get(str(child_key))
+
+    def get_children_keys(self, parent_key: str) -> List[str]:
+        """Get all child/phase project keys for a parent project."""
+        return self.parent_to_children.get(str(parent_key), [])
 
 
 # Global instance

@@ -1,0 +1,98 @@
+{
+  "metadata": {
+    "generated_at": "2026-03-17T02:05:22.317456+00:00",
+    "parent_directory": "data/raw_docs",
+    "total_projects": 6,
+    "projects_with_metadata": 1
+  },
+  "projects": {
+    "1430152": {
+      "project_id": "1430152",
+      "project_name": "NMED Acomita Day School",
+      "full_path": "data/raw_docs/Acomita Day School/1-NMED Acomita Day School (1430152)",
+      "department": "Environmental",
+      "start_date": "May 25, 2021",
+      "end_date": "July 12, 2021",
+      "client": "NEW MEXICO ENVIRONMENT DEPARTMENT Ground Water Quality Bureau",
+      "scope_type": "Environmental Site Assessment/ESA",
+      "extraction_timestamp": "2026-03-17T02:05:14.802446+00:00",
+      "confidence": 1.0,
+      "sources_used": [
+        "contract:2021-05-25_Acomita_LBP-ACM_NTP.pdf",
+        "contract:Miller Engineers PO 36028.pdf-Approved 5.10.2021.pdf"
+      ]
+    },
+    "2434770": {
+      "project_id": "2434770",
+      "project_name": "AECOM Las Vegas Ditches",
+      "full_path": "data/raw_docs/2-AECOM Las Vegas Ditches  (2434770)",
+      "department": "Survey",
+      "start_date": "February, 2025",
+      "end_date": "September, 2025",
+      "client": "City of Las Vegas",
+      "scope_type": null,
+      "extraction_timestamp": "2026-03-17T02:05:14.508240+00:00",
+      "confidence": 1.0,
+      "sources_used": []
+    },
+    "3424143": {
+      "project_id": "3424143",
+      "project_name": "El Rancho Shell",
+      "full_path": "data/raw_docs/3-El Rancho Shell (3424143)",
+      "department": "Other",
+      "start_date": "July, 2015",
+      "end_date": "July, 2015",
+      "client": "El Rancho Hotel",
+      "scope_type": null,
+      "extraction_timestamp": "2026-03-17T02:05:14.508389+00:00",
+      "confidence": 1.0,
+      "sources_used": [
+        "contract:2015-07 SMA El Rancho Contract.pdf",
+        "contract:2015-07 El Rancho Contract cover letter.doc",
+        "contract:2015-07 SMA Contract (Owner-El Rancho) - PST in NM [ver. 12-14].docx",
+        "contract:2015-07 SMA El Rancho Contract Signed.pdf"
+      ]
+    },
+    "4229854": {
+      "project_id": "4229854",
+      "project_name": "Las Vegas Transfer Station Expansion",
+      "full_path": "data/raw_docs/4-Las Vegas Transfer Station Expansion (4229854)",
+      "department": "Other",
+      "start_date": "January, 2021",
+      "end_date": "October, 2021",
+      "client": "City of Las Vegas",
+      "scope_type": null,
+      "extraction_timestamp": "2026-03-17T02:05:14.754580+00:00",
+      "confidence": 1.0,
+      "sources_used": []
+    },
+    "6234729": {
+      "project_id": "6234729",
+      "project_name": "Lopez Water and Sewer",
+      "full_path": "data/raw_docs/6-Lopez Water and Sewer (6234729)",
+      "department": "Water",
+      "start_date": "September, 2025",
+      "end_date": "October 6, 2025",
+      "client": "Lopez",
+      "scope_type": null,
+      "extraction_timestamp": "2026-03-17T02:05:14.754762+00:00",
+      "confidence": 1.0,
+      "sources_used": []
+    },
+    "6234761": {
+      "project_id": "6234761",
+      "project_name": "Rio Embudo Water System Improvements",
+      "full_path": "data/raw_docs/6-Rio Embudo Water System Improvements (6234761)",
+      "department": "Water",
+      "start_date": "November, 2025",
+      "end_date": "November, 2025",
+      "client": "Rio Embudo MDWCA",
+      "scope_type": null,
+      "extraction_timestamp": "2026-03-17T02:05:14.754925+00:00",
+      "confidence": 1.0,
+      "sources_used": [
+        "contract:2025-11-05_Rio Embudo MDWCA WSI Design Scope.docx"
+      ]
+    }
+  }
+}

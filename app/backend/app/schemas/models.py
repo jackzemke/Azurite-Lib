@@ -55,12 +55,13 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=1000)
     k: int = Field(10, ge=1, le=20, description="Number of chunks to retrieve")
     chat_history: List[dict] = Field(default_factory=list, description="Previous Q&A pairs: [{'query': '...', 'answer': '...'}]")
+    force_ajera_search: Optional[bool] = Field(None, description="Manually force Ajera search (True/False/None for auto-detect)")
 
 
 class QueryResponse(BaseModel):
     """Response for Q&A query."""
     answer: str
-    citations: List[Citation]
+    citations: List[Citation] = Field(default_factory=list)
     confidence: str = Field(..., pattern="^(high|medium|low)$")
     elapsed_ms: int
     stub_mode: bool = False
@@ -69,6 +70,23 @@ class QueryResponse(BaseModel):
     personnel_data: Optional[dict] = None
     file_location: Optional[dict] = None
     duplicate_info: Optional[dict] = None
+    # Project metadata search results
+    projects: Optional[List["ProjectResult"]] = None
+    team_data: Optional[dict] = None
+
+
+class ProjectResult(BaseModel):
+    """A single project match from metadata search."""
+    project_id: str
+    project_name: str
+    department: Optional[str] = None
+    client: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    scope_type: Optional[str] = None
+    full_path: Optional[str] = None
+    team_count: Optional[int] = None
+    distance: Optional[float] = None
 
 
 # Chunk models

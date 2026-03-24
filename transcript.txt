@@ -1,0 +1,293 @@
+0:49 - Unidentified Speaker
+More minutes just to trickle. And then we'll get started.
+
+3:57 - Jack Zemke
+I'm going to give everyone just till 235. So just a couple more minutes, and then I'll go ahead and get started.
+
+5:35 - Wyatt Briggs
+Well, if I arrived after the fashionably late, does that make me unfashionably late?
+
+5:41 - Wyatt Briggs
+Yeah, then you're just rude.
+
+5:42 - Jack Zemke
+All right, well, that feels like a good cue to get started.
+
+5:51 - Unidentified Speaker
+So hello, everybody.
+
+5:53 - Jack Zemke
+Thank you all for coming today.
+
+5:57 - Jack Zemke
+First of all, I just want to, yeah, again, thank you all for being a part of this Group. I didn't put the roster together, so I'm not sure who volunteered and who might have been more voluntold but either way I'm really glad you're here. I'm excited to get some feedback from you guys and kind of start to Work together. For those of you who don't know me there's a couple new people in here that I haven't met. My name is obviously Jack and I Work to help implement AI across the company. I've been here, I Work under SMA but I'm really working on developing tools for the entire organization which is one of the reasons we have people from kind of all over the org here today. So to get started, again, welcome. And I want to start by kind of just laying out the basis for this Group. And I want to really start just by saying, you know, here's the deal. So essentially, this Group, really only it exists, because AI really only works if we're building the right things. I can make a lot of interesting, cool tools that, you know, might do something cool. But cool doesn't really matter if it doesn't actually help you. So my job is to build stuff that makes your life easier. And in this Group, your job is going to be to tell me honestly whether or not I'm on the right track. You guys are kinda gonna be like my finger on the pulse for the wider company. So a couple of ground rules that are gonna help make this Work. The first one, we all know and love it, no dumb questions. I'm going to extend this out to no dumb ideas, no dumb tools, nothing like that. Some of you might have specific project needs. Others might have questions about what's even possible. All of that is exactly what we need here. I really want to foster a climate of non-judgment and of working together. And it really starts with this first ground rule. So if you feel like there's something you want to be clarified or something you wanna say, you should just make sure you say it. This Group really works best when we're all collaborating and talking. So that's the first one. The second one is honesty over politeness. So if something I show you, if it seems useless or overcomplicated, I need to hear that. I would much rather know if something I'm building isn't gonna Work, isn't gonna be helpful, than have my feelings saved. It's really not gonna hurt my feelings that bad. It's much more helpful give me criticism and are skeptical. And that leads into the third one, which is that this is a safe space for skepticism. So if you think AI is overhyped or if you've tried it and you've been underwhelmed, that's really, really useful feedback for me. This is a space where you should be able to kind of share the things that you think are not going to Work or might Work as well, obviously. Bottom line is that I'm not here to sell you on AI or anything. I'm not here to sell you on the tools I'm making, I'm here to make those things actually Work for you. And the best way to do that is to be honest and be skeptical and critical. One other thing I really want to address before we get into the weeds is something I spoke about at the town hall, a lot back last month, which is that as you're right across our organization, what we're really focused on as far as AI is augmenting and not replacing people's skills. So we're But we all know and recognize the fact that the most valuable asset that this company has is you guys and your expertise and what you guys bring to the table is a lot more than just your daily workflow. It's what's behind it all. And so we really want to keep that and capitalize on that. In pretty much everyone's job, there are inefficiencies that kind of siphon time away from the high value Work that you guys really need to do. What I'm trying to do, what I was brought in to do, is kind of reduce and mitigate the amount of time that people spend doing low-value Work. So I don't really feel like we necessarily need to do like a round-robin intro, but as I mentioned this is going to be a pretty collaborative meeting. Hopefully everyone's going to get a chance to talk. So what I would like to do is when you go off mute, the first time you go off mute to say something, if you could just give a quick, you know, mine would just be, I would go mute and I would say hey guys you know by the way I'm Jack and I do the AI developing and then I would go into whatever comment I want to say. That's just going to help me keep things straight and make sure I've got you know I know who's who's speaking and what team they Work on especially for the people I haven't met yet. So with that let's move on to today's agenda. So we've got a couple things I'm going to demo two different tools for you and we're going to do a discussion for both of those tools I also kind of want to get just a general sense of how people feel about AI their comfort levels and you know kind of just try to Take the temperature there to so that I have a baseline and something to go off of So if all of that looks good, let's go ahead and get started with our temperature check So I Really like I said, I just want kind of want to get a sense of the familiarity with AI across this Group. I understand there's probably a mix of people who are more comfortable, less comfortable, more excited, less excited. All that is great. I want all comforts, all excitements. So what we're gonna do to start is in Teams, if you guys could just raise your hand in Teams if you have used AI in your Work life. So whether it's writing an email, summarizing something, generating something, maybe you use it every day, maybe you've literally used it once. Okay, okay, so everyone, perfect. That's good. And now keep your hand up if you felt like the AI actually really made what felt to you like it could be a measurable difference in your Work. So if you were really struck by, oh wow, okay, this is great, this actually works.
+
+12:10 - Jack Zemke
+All right, that's everyone again. Easy peasy.
+
+12:17 - Jack Zemke
+OK, so I guess for the third one, for my third question, I'm curious if you have used AI in your Work and you have felt maybe one section of your Work or another underwhelmed or felt like you couldn't trust the AI or something like that. If anybody has an example like that, I'd appreciate if people shout it out what I'm trying to get a sense for here is kind of what are the barriers that people feel to using ai in their Work are there certain things you don't trust it on are there certain things you don't think it can do kind of what are the what are our issues and this is we can just popcorn if anybody has anything I tried to get it to uh oh this is Colin I have I've been trying to use AI more intentionally because I'm not really an early adopter kind of person.
+
+13:13 - Colin Daly
+But I have been using it more and more. It took a little while.
+
+13:21 - Colin Daly
+I'll give two quick examples. One was I tried to see what happened on a certain project. What did we spend the most time on? So I printed out a spreadsheet from Ajira and I fed it And I said, this is my project task. What did we spend the most time on and, and, uh, and like have a rank it. And, and it, I think I had like $50,000 budget on that task. And the, the total ended up being like $300,000. And so obviously it was doing some things wrong. And so after a while I corrected, I was like, Hey, you're, you're over the budget. And it was like, oh yeah, sorry. And it, it tried to fix it. So, uh, I took the results once it cleared up. It up I took it with a grain of salt but it was helpful in the end but I just you know I had to use my brain and say well that doesn't look right because it it's six times as much as what my actual budget was when I gave you know that was in a JIRA so that's one example that you know I needed a lot more guidance than I gave it initially another example is just with some technical things I'll ask a technical questions and if I don't know kind of where I think it should be it definitely can give some answers that that can be a little bit off so I've noticed that you know if I say what kind of valve should I use for this application I have to know what I'm looking for otherwise I will because I've spotted a couple times where I'm like I don't think that really met all the parameters I've given it.
+
+14:56 - Jack Zemke
+Okay so it's a mixture of kind of locking on accuracy and also So you having to go in and sort of validate the output after it's already provided it to you?
+
+15:08 - Jack Zemke
+Thank you, Colin.
+
+15:09 - Unidentified Speaker
+Erich, did you go off mute?
+
+15:13 - Jack Zemke
+Go ahead.
+
+15:15 - Unidentified Speaker
+Yeah, this is Erich here out of the Riverton office.
+
+15:18 - Erich R. Hahn
+So I've used AI kind of just getting general equations from resources. So there's an issue usually when you ask a question saying, What are some equations to use for immediate settlement? Sometimes the AI presents a document from a college or a document from an organization. The issue with that is sometimes they're not accurate. It doesn't really refer to an unknown resource through the engineering world. For example, what I do now, actually, is if I have a question on an equation, I type in, give me a government document or a published document from .s or USACE or ASCE manuals. And it usually produces a good equation that way. So I really got to look out, seeing where your resources come from through AI.
+
+16:24 - Jack Zemke
+So it's a similar validation issue, but it's on the other side. So you're using it for something different, but you're using it to surface information. And when you do that, you still find that sometimes it's pulling from suboptimal sources.
+
+16:37 - Erich R. Hahn
+And I've solved that, actually, by making a prompt saying, just give me information from US government documents. And that's what it does. And it's a lot more helpful that way.
+
+16:54 - Jack Zemke
+Alright, does anybody else want to contribute on some maybe just some of their personal experiences using AI and Work in places where it felt like it maybe fell short?
+
+17:06 - Jack Zemke
+Yeah, so.
+
+17:08 - Wyatt Briggs
+And it may just be a mental barrier of mine, but I have a hard time trusting it with consulting for like technical Work type thing. Kind of like Colin was mentioning. Like I feel like it may not give for if I need like a specific type of valve or something like that.
+
+17:27 - Wyatt Briggs
+And honestly, more of what I use it for is just kind of like language checking of emails and you know things like that, but I'm certainly open to learning more about it and then also. I have some ideas for specific applications of what it can. Kind of help with some of the taking out some of the time consuming reviewing certain things.
+
+17:52 - Unidentified Speaker
+OK, awesome, well, we'll get to suggestions.
+
+17:54 - Jack Zemke
+I think closer to the end after we do the demos, but sure.
+
+18:06 - Daniel Rodriguez1
+My name is Daniel official title is solution developer and I'll try to keep it brief and is kind of a general what my experience has been and how I use it.
+
+18:15 - Daniel Rodriguez
+daily for my Work, which is IT infrastructure, help desk support, but also programming of the Internet, programming of the website, and different traditional programming tools that are not AI, but I am a programmer. And I'm constantly, I don't know what the word is, or I don't know what the function is, or I don't know what that formula was, or that algorithm is, and so I will have a conversation with ChatGPT so I can I try to find the words that the industry would use to describe the thing that I'm trying to find. And once I get close enough, then I will go to a more traditional Google search to start to validate what ChatGPT is telling me. But also with my job, especially with the programming stuff, I can just put the code into a file and I can run it and see if it runs very often. But I'm also knowledgeable enough to know that, oh, that piece of code that it just generated, yeah, it works, but it's suboptimal. So I'm going to program it my way. And so knowing that I'm in a forum with some engineers, I don't know if that will hit home a little bit to say that there's things you already know, and you may not find a need for it, but maybe there's something that you've forgotten or you're trying to find a reference for something you can't quite You can't quite find the words for it, but once you find it, then you're able to go and validate what it produced for you. I would say that I would never trust what it gave me. I'm always going to test and verify, validate, et cetera, et cetera. And that's my general experience. But I do use it every day because it does help me learn a little faster terminology and logic and algorithms that I may be less familiar with in my experience. There you go. Cool, thank you.
+
+20:09 - Jack Zemke
+So it sounds like kind of across the board, we have a lot of people who are really into, they'll certainly spend time to validate the outputs, which is really good. Cynthia, were you raising your hand?
+
+20:23 - Jack Zemke
+Yeah, I was. I was just kind of going to piggyback on what Daniel said.
+
+20:26 - Cynthia Stoehner-Hernandez
+So I'm based in the Las Cruces office. I'm not a technical person, but I do a lot of grants, funding applications, and then also business development and marketing for the company. And so mostly I use Copilot. I also have Gemini and I use ChatGPT, but mostly for Work, obviously, I use Copilot. But a lot of my stuff is researching targets, mostly target municipalities and seeing who our competitors are, what projects they have going on. So I'll kind of use ChatGPT to do that. And then I still, like Daniel said, have to go and validate that and then same thing for funding applications just kind of making sure that the the verbiage hits the criteria for what they are asking and then still verifying that. Very cool.
+
+21:19 - Jack Zemke
+Okay cool so it sounds like from on a general kind of overarching theme here is that most people feel comfortable using AI but there's a lot of skepticism about the final output and so it seems like to a lot of what people are really using it for is kind of surfacing information, using it as sort of an enhanced Google almost, as opposed to using it to really draft and generate your final deliverables. Does that seem kind of accurate to what most people are feeling?
+
+21:54 - Colin Daly
+I found it helpful to, you know, in deliverable stuff, so like maybe specification, and I was using it the other day, and I found it pretty good. I still tweaked it, but I was trying to make sure that I was meeting the requirements for manufacturers on pipe embedment, and it gave me some really good language. It's a good starting place, so I think it can be used for deliverables, and maybe we could talk about this at some point, but it does seem like most of it you have to copy and paste it, so I don't know if you're getting at something more sophisticated where it can do some other sort of output, but I just mainly have been using Copilot and it seems like I have to copy and paste everything out of it, so I'm not sure if that's what you're getting at, but I have used it in deliverables because it can help with some good language. Okay, good to know.
+
+22:55 - Jack Zemke
+I was mostly talking about the copy However, you get the output into the document, I'm not as concerned about. But yeah. Okay, let's move on. Let's keep keep plugging along. I think I'm ready. We're going to start with our first demo here. And this is going to be the that Azure Archive Assistant. Many of you probably saw this demo at the town hall, or maybe you watched the recording. And if you did see that demo, and it impressed you, I'm excited to hear that, but I do want to tell you that the demo was pretty intentionally curated. So the questions and the data sources were kind of specifically selected to highlight scenarios where the system would perform well. It demonstrated what the tool can do under ideal conditions, but it may have slightly overstated kind of how consistently it performs. So what I'm hoping to do today is kind of get a better sense of how people might see themselves using this tool, if at all, and then kind of figure out, it's gonna help me figure out how to build out the functionality, kind of what parts to reinforce. So, I'm gonna pull up the interface here. Give me one moment.
+
+24:20 - Jack Zemke
+Okay, so this is the interface. Like I said, some of you may have seen it in the town hall, and I've got a couple prompts we can just do, but I guess if some of you didn't see this, what this tool is meant to be is kind of a smart archive search. So you're supposed to be able to kind of query it with natural language like you would any of our other AI tools that, you know, Copilot or ChatGPT that you guys might use, but it's supposed to have access to our internal documents, and specifically previous projects. So this is kind of supposed to help ease the pain point that I heard over and over again when I would meet with different teams which was I know I've done a project similar to this or I can remember this specific part of this other project but I can't really find the documentation or I can't find the project and so this is supposed to be an easy way to do that. So the question that I demoed at Hall was, it was something like, what was the NMED project? I think it was 2021. And so what this does is it embeds a query. I've set up a special database for this. And it'll go in and use an AI to kind of Read it and synthesize an answer. So the project was this project conducted in 2021. So then we can go over here. And for this demo, I've ingested five projects, so it's not actually hooked up to the full kind of internal database. But the idea here is that you can use this tool to search for specific projects and then also potentially search for information within the project. So we know it was an environmental site assessment, so maybe we can ask, what was the outcome of the ESA?
+
+26:10 - Jack Zemke
+And let's see.
+
+26:22 - Unidentified Speaker
+Chemicals of concern here and here.
+
+26:25 - Jack Zemke
+So the idea here is that these answers are easy to verify. You can just click on them and it'll take you exactly to the page in the document that it found the information. But what I'm looking for from you guys today, the way I want to do the demo is I want real questions that if you had access to this tool today, like right now, what would you, if you were working on a project, what might you ask it? And this is, I'm hoping that there's maybe people from all over the organization that can find use in this, from marketing to tech. And so I'm curious if people would use it primarily to maybe just surface like specific projects. Like I'm trying to remember what the name of this project was. Or maybe look for specific technical specifications within the projects, outcomes, personnel, files, anything like that. So again, if people want to type into the chat or shout out, this is going to be really helpful for me to kind of prompt it naturally in the way you guys would. It really helps me stress test it.
+
+27:32 - Unidentified Speaker
+This is Patrick.
+
+27:34 - Patrick Roskam
+Manager. So I'm fascinated by this tool as a possible or the potential of it to potentially de-dupe some of our massive file sets and find redundancies across the network. We have people copying files all over the place and it is almost impossible to keep up with. So obviously this is designed to quickly access archives in real time, but does it have the potential to find similar projects that just kind of died and never been archived? A great question. I mean, let's see.
+
+28:10 - Jack Zemke
+Let's check. Let's say there's I'm hoping maybe like, maybe it'll Group this Las Vegas ditches and Las Vegas transfer station. Maybe it'll Group them together because they're both in Vegas. Let's see. Maybe I I can word it like, are there?
+
+28:33 - Unidentified Speaker
+Would you word it like that?
+
+28:33 - Jack Zemke
+Or would you say, which projects are the exact same?
+
+28:39 - Unidentified Speaker
+Or similar enough.
+
+28:40 - Patrick Roskam
+So there's a secondary problem to this, where we have non-project data ending up in project directories.
+
+28:48 - Unidentified Speaker
+And this tool might be useful in isolating that and moving it elsewhere.
+
+28:54 - Patrick Roskam
+You've already seen the way we structure our file servers. We have basically two repositories in each server that users have full Read and write access to. And then everything else is relatively locked down. But in those structures, people aren't following the rules, basically. And it would be nice to have a non-human mechanism that could go and say, hey, red flag on this. This doesn't belong here. This looks very similar to another project that lives on a different server, which one's authentic? That's the kind of stuff that we have to deal with sometimes in IT, that it's difficult to automate. It's a really interesting use case.
+
+29:34 - Jack Zemke
+I honestly had not thought about that. But I do. I'll look into, I'm trying to think about a way to potentially do that. Part of what, you guys might start to see this, Oh, these are going to be two documents, it looks like, I guess. You guys might start to see this, but part of the way that the search works is that it looks for essentially keywords within the documents. So it doesn't do well with the sort of embedded context that you might think of So if we say, are there two projects that are similar? The way that it searches the database is it might literally look for the word similar. Case it surfaced, it kind of understood the assignment. But that's an interesting idea. I'm trying to figure out ways to kind of bake the context more into the actual embeddings. But what about somebody from, Cynthia, you Work in marketing as well. Could you see yourself or your team using this outside of like the technical Yes for sure.
+
+30:50 - Cynthia Stoehner-Hernandez
+So we're having issues finding. So if there was a tool that I could just search for and kind of type in wastewater or whatever um project I'm looking for then that would be easy um the other thing is we could use a bit for for um so if there's a file located within any of the project folders that says on call um you know yes I have a majority of them on the internet um as far as the agreements but sometimes um there's some that have been before my time that I have not been able to catch, but that would be useful. Okay, awesome.
+
+31:45 - Jack Zemke
+I have an open question to the whole Group. Would people, it seems like, at least from what I've heard from Patrick and Cynthia, and this is kind of a key question I want to address, is do you think you could see yourself using, if you could see yourself using this tool, would you use it more to kind of find projects and figure out, you know, what the name of the project was or what you know what was that specific project or it sounds like a nice functionality would be to have nice functionality to have would be you know where on our internal server does that project live so that's a certain type of question and then the other types of questions could be about you know actual content of the project you know what was the outcome of the site assessment how deep did we bury the the you know the drainage pipe I'm curious between those two types of questions, which of those would you see yourself doing more? Which of them would save more time, be more helpful? Or is that something you guys are thinking about? Go ahead.
+
+33:03 - Daniel Rodriguez
+I'll go ahead and speak if you all can hear me. Sorry, it's really windy in the place that I'm driving right now. I'm off to pick up my son from school. But Jack, I think you're, from a technical standpoint, what was rolling around in my head based on what Patrick was saying and Cynthia was saying was that it's right now where I think maybe there's a little struggle of how can we use this to search the content, which is what I may have the wrong word there, but search the content for deeper discussion with an AI versus right now, I actually think there's a more systemic issue of putting things where they belong in a corporate and ever more enterprise feeling level. Enterprise is the buzzword of the day for me because we are integrating more companies and between IME and coffee coming on board is more of what I'm referring to. And so standards and procedures, getting that out to the masses and making sure that things are showing up in the appropriate places. So Cynthia is saying on calls, she's got them in a place except for things before her time, but there's a system in place. However, RFPs, there may not be a system in place as to where does this thing go so that we can search for it later and so that an AI can ingest it faster and then we can search the RFPs and have a deeper conversation rather than the basic level of where the heck did this thing go in the first place? Who put it where? Who delivered it where? And why didn't they put it where it belonged? And that's just coming from somebody who's been here for 10 years and has had to address that multiple times since I've been here.
+
+34:58 - Jack Zemke
+Okay, so a directory really seems like probably the primary, the first kind of pain point that it would solve. Wyatt, to your point, the way that this current version is designed is that it is designed to search for specific info in projects. So this isn't necessarily your question, but if we pull up this project and we say, you know, maybe who was the client for this project. So if the information is present, like kind of directly in the document, and it doesn't need to be inferred, then it can usually find the information pretty quickly. But it seems like to most people, the primary value derived from this tool would be in locating and kind of assessing the hierarchy of the documents and making sure that there's no duplicates and that kind of thing.
+
+36:01 - Colin Daly
+I would counter that point and say I think Microsoft Word can do that a little, I mean not Microsoft, Windows can do that a little bit already, right? Like if you searched for say invoice and you were looking for where the invoice is in this file folder and maybe put them in the wrong folder or something like that you'd still likely be able to find that using that but I think being able to ask it sophisticated questions and be able to get useful answers from it seems like something that AI would excel at right and and we don't have that technology and so I would I would say I'd rather see something that I can't do with Windows even if Windows I mean it honestly takes a long time sometimes to search for those things and maybe not perfect, but I still think that would be the cooler and more useful thing for me from my perspective.
+
+36:54 - Daniel Rodriguez
+And I'll jump on that, Colin, just to say that I didn't get there, but that's where I wanted to get is the usefulness of AI is exactly what you just described, Colin.
+
+37:09 - Daniel Rodriguez
+Internally, though, we that we have everything in its appropriate place so that we could start making use of a tool like an AI. And how am I trying to say that? I suppose, Jack, my question would be, could the AI ingest all of our data and then be able to tell us where all of our RFPs are on the server? To me, the simpler answer would be we just need an internal procedure to make sure we are properly cataloging things that we need to search, and then it would be an easier task for an AI to ingest it and then to have that deeper conversation, as Colin just mentioned. That's where AI would shine. It would be useful to take a step back and try to get things in proper order.
+
+38:06 - Unidentified Speaker
+wrong, though, so.
+
+38:09 - Jack Zemke
+OK, in the interest of time, let's do, I think Wyatt was off mute. If you have something to say, and then Erich, and then we need to move on to the next demo. Get you guys out of here on time.
+
+38:21 - Unidentified Speaker
+But Wyatt, did you have something you wanted to?
+
+38:23 - Wyatt Briggs
+Yeah, I was just going to respond to your questions, but I think it probably would be more time effective for me to kind of write down some of my ideas and maybe discuss them later.
+
+38:36 - Erich R. Hahn
+Yeah, I'll just, I'll respond by email. I have another question.
+
+38:42 - Jack Zemke
+I just want to get just from maybe some of the people, if I haven't quite heard from you yet, I think it would just be helpful for me to get my head around kind of one final, or not consensus, but sort of temperature check of this debate that we're having of search for the documents versus search within the documents, which would be more helpful. So if anybody feels strongly and they haven't spoken yet, just a quick kind of note about which those would be more helpful. Or if you don't have a preference, that's fine too.
+
+39:19 - Unidentified Speaker
+All right.
+
+39:21 - Jack Zemke
+All right, let's move on. Bring us back here.
+
+39:29 - Unidentified Speaker
+OK, the word bank.
+
+39:30 - Jack Zemke
+So this is a project that I developed or that I'm currently developing with the IME Geotech team. Erich is part of that team. He's here in the meeting with us. And this was kind of built to address the sort of situation that we have where you might have a proposal or some kind of deliverable that reuses a lot of boilerplate language and might only differ in a couple of key areas. Or key ways. So I built this. I'm going to get it spun up for you. Excuse my, pardon my dust. Let's get this.
+
+40:15 - Jack Zemke
+So what this project is kind of meant to do is that it scans a training set that was provided to me by Erich and his team. And it goes in and it essentially finds, well, what we focused on for this project was the executive summaries. So within, and Erich, maybe you can kind of help fill in the blanks here, but within the executive summaries of these proposals, or these deliverables that the geotech team delivers, there is some boilerplate language that kind of never changes across the projects. And then there are kind of very specific parts where it changes. And so what this does is it broke down within the executive summary three places within the summary where there's usually variation. And I hope this is correct. I might be showing my ignorance here. But it looked to me like there was one section for conditions that kind of changes based on the conditions, the issues, and the recommendations. And those are kind of the three big places where there's change. And then you can go here and say you're working on a project, and you're writing the conditions part, and you want to write about the groundwater, the borings, and the feeds. So then you can go down here, and it'll say this is kind of the baseline batch. Groundwater was observed in test borings, blah, blah, blah. And so it'll come down here, and it will highlight in yellow the replacements, so things groundwater was encountered within all borings, as opposed to groundwater was, you know, observed in the test borings, and then it'll highlight in green the new additions. So a good kind of example is here. So for the recommendation section, drainage, we've got this kind of basic boilerplate. You can just grab this if you have nothing really specific to say, but here we can kind of, it'll highlight, this is a new word, so instead of to prevent surface infiltration, this prevents excessive surface infiltration. Or maybe here we want to include grades, maybe may need to be modified. Or maybe we want to grab a part that says, you know, that makes note about around and beneath the structure, as opposed to just, or, well, okay, bad example. But do you understand, I hope you can understand kind of the use of this tool. So I'm curious, kind of first impressions, well, Erich, does that seem correct? Does the problem statement seem correct, and the solution, sort of
+
+42:55 - Unidentified Speaker
+Yeah, do you mind going back to that screen? Oh, yeah, sorry.
+
+42:57 - Jack Zemke
+I didn't mean to switch off.
+
+43:00 - Erich R. Hahn
+Yeah, you got it pretty much right on the dot here. So, I guess for reports, we have a lot of issues writing reports. It takes us quite a bit of time trying to find language that we use in previous reports. So, this outline here, he divided up in the three sections. So the issue statements, the recommendation statements, these are like paragraphs we write like on a regular basis, and we have some wording on there that we change once in a while. So this really saves us time by providing this information. We don't have to search through past reports.
+
+43:46 - Erich R. Hahn
+Yeah, this looks a lot better now.
+
+43:53 - Jack Zemke
+So from other people's point of view, do you feel like, you know, from some other people within the Group, would you feel like you could use this? Would this feel like it would really save you time? Or do you kind of just feel like it's here and it's cool and it's interesting, but you wouldn't necessarily find yourself opening it?
+
+44:14 - Jack Zemke
+What are other people's first reactions and feelings?
+
+44:22 - Wyatt Briggs
+Kind of a different application, but I feel like this could be beneficial for writing PERs and tech memos on the technical side. A lot of times we use very similar language to a previous PER or report that was written, but it may be helpful to If we're talking about a water tank, it'll generate stuff that we've used for water tanks. If we're talking about a new well, it can generate language we used previously for a new well, those kinds of applications.
+
+45:01 - Jack Zemke
+Yeah, so one of the cool things about this project is that it's super modular. So every team, if you face a similar style of problem, it doesn't have to be kind of the exact same, but something similar-ish, like what you just mentioned, Wyatt, then this can be really easily kind of switched around to just mold and fit to your exact, your team's needs. So I'm curious, how do people feel about this kind of interface with the different color highlights and all of these being displayed this way? Like if you came in here and wanted to look for something like this, what would be in your mind the easiest way to find the specific variant of the phrase that you're looking for? Just picture opening up the tool and your ideal situation.
+
+46:06 - Jack Zemke
+does a system kind of feel intuitive or no? Let's start there.
+
+46:17 - Colin Daly
+I would say it feels the safest because you're just, correct me if I misunderstood, but you're just taking snapshots of similar paragraphs, right, that mention something like that?
+
+46:33 - Unidentified Speaker
+feels pretty safe because it's not like changing anything.
+
+46:36 - Colin Daly
+And so the user has to do a lot of manipulation to make it fit the new thing. And so I guess if we were pushing the envelope, it would actually generate something, a suggestion or something like that. But I could see that being more complicated to both program and more risky, right, for us, because someone might use it and it's not been vetted properly, so I'm on the fence. This seems like the best starting point, but I'd be curious to know if we would want to keep going in that direction to where it eventually gives you a suggestion.
+
+47:13 - Jack Zemke
+Yeah, the issue with the generation, and this kind of has stayed consistent, is just that it has to be verifiable, especially for something like this that, you know, we're turning into our client. And there's obviously a trade-off between the time saving of something being generated versus the time cost of having to make sure that it's correct. And the other kind of advantage here is that we know that this is kind of the standard language that we use within the organization. So there's no kind of worry about, does this sound correct? Because it's perfectly lifted. But I do get your point, Colin. It certainly would be probably quicker if we could be confident that the output was correct or if it was easily verifiable.
+
+48:05 - Unidentified Speaker
+Does anybody have any strong feelings?
+
+48:07 - Jack Zemke
+The main thing I wanted to ask about with this tool was about the interface. So about if you could open this and kind of figure it out on your own if you feel good about that, or if there are ways to kind of make it simpler. So I'll kind of open the floor up one more time, but it seems like the general consensus is this is a kind of pretty helpful starting point. Is there anybody that feels like this wouldn't be helpful? And this is not going to hurt my feelings, Maybe just raise your hand in teams if you don't really see yourself using this tool.
+
+48:44 - Unidentified Speaker
+All right, I'll take that.
+
+48:47 - Jack Zemke
+Okay, well if nobody has any more strong feelings about this, then that's going to probably wrap up our second demo and discussion. And this is kind of all I had really planned for today The one thing I want to say is um for the the kind of the recurring meeting if this Generally, this is today is the third wednesday of the month. My schedule is generally pretty open. So I was just gonna kind of Reschedule this and keep it recurring. So unless anybody has a glaring issue There will probably be know, the recurring meetings will start to come out probably by the end of the day. That works for everyone.
+
+49:35 - Jack Zemke
+And otherwise, I'll stay on for a couple more minutes if people just want to talk and discuss. But if we want to run, you know, school's out early, so we can. But thanks for coming today. I really appreciate it and I look forward to, you know, continuing our Work together. Got some great insight today, so I look forward to showing you What i've been working on next month and kind of keep this going so thanks again everyone.
+
+50:01 - Colin Daly
+We'll see you next time So Jack are are you planning do you have a plan do you have to do some more um Betting of these things you showed us or are they are they getting close to releasing?
+
+50:17 - Jack Zemke
+So kind of the the rollout I see The way I see these kind of going out is that I'll probably release them pending IT input Within the next month just for like a essentially closed beta So you guys within this Group will have access to it and that will kind of help me make sure that it scales Correctly that it can handle a user load of you know, this Group is like 15 people so that's kind of like a good way for me to stress test it and then from there following maybe a couple weeks of that, depending on how much the tools get used. Then, again, Work with IT and stuff, and then hopefully get it out for wider use. So both of these tools are kind of like mostly done. Most of the functionality is built out. I'm just really focusing on kind of the edge cases, making sure it's resilient, kind of what happens if the tab closes on accident, or the browser crashes, those kinds of things. Working through, but yeah.
+
+51:29 - Wyatt Briggs
+Jack, if we have other ideas, I guess, and this may be thinking way out in the future, like not trying to overload you or anything, but for other applications or other maybe tools that could be beneficial. Should we just send an email or should we wait, hold on to them and talk later as these things kind of get more and more developed.
+
+51:56 - Jack Zemke
+Shoot me an email. I think that's the best way to do it. And you can shoot me an email. We can set up a time to talk kind of live. It's usually easier to talk through things as opposed to just sending in an email. I do have a bit of a backlog on the projects right now.
+
+52:11 - Unidentified Speaker
+That makes sense. But I do like to keep a running list and kind of keep the list updated.
+
+52:16 - Jack Zemke
+Because if something comes up that that would be really helpful, then it doesn't make sense to wait and get through all of the less helpful projects. Prioritizing like that is important to us, and having a big enough list to really decide what's worth focusing on and what's not is part of that process. So I'm always happy to talk, meet with new people, and I keep a running list going, but I just can't promise that it'll start development at any certain time.
+
+52:45 - Unidentified Speaker
+No, that's understandable.
+
+52:46 - Wyatt Briggs
+So that's kind of why I phrased it the way I did, because I'm sure you have plenty of those requests going on so.
+
+52:55 - Unidentified Speaker
+Yeah, well, like I said, it's great and you know any idea.
+
+52:57 - Jack Zemke
+I really all entertain it. Any idea? Because there really is. The capabilities are growing and had some great ideas that just kind of came about from people who weren't quite sure so.
+
+53:10 - Wyatt Briggs
+No, thank you for Setting these up and these, I think it'll be very beneficial for the company. So good.
+
+53:22 - Jack Zemke
+All right. Well, if if everyone's feeling good, I might just go ahead and close the meeting here unless people have anything.
+
+53:32 - Unidentified Speaker
+Thanks, Jack. Thanks, Jack.
+
+53:35 - Unidentified Speaker
+Thank you.

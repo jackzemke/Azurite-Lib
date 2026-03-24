@@ -281,6 +281,28 @@ class TestQueryExpander:
         # Should suggest contracts/proposals for client queries
         assert any(doc_type in hints for doc_type in ["contract", "agreement", "proposal"])
 
+    def test_outcomes_query_semantic_expansion(self):
+        """Outcomes queries should expand to semantic findings/results language."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "app" / "backend"))
+        from app.core.query_expander import QueryExpander
+
+        expander = QueryExpander()
+        expanded = expander.expand_query("what were the project outcomes")
+
+        assert any(term in expanded.lower() for term in ["findings", "results", "conclusions", "recommendations"])
+
+    def test_outcomes_doc_type_hints(self):
+        """Outcomes queries should bias toward report-like documents."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "app" / "backend"))
+        from app.core.query_expander import QueryExpander
+
+        expander = QueryExpander()
+        hints = expander.get_doc_type_hints("project outcomes")
+
+        assert any(doc_type in hints for doc_type in ["report", "assessment", "summary", "findings"])
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

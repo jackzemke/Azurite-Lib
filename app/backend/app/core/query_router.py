@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 class QueryIntent(str, Enum):
     """Intent types for query routing."""
     DOCUMENT_QA = "document_qa"
+    PROJECT_SEARCH = "project_search"
     PERSONNEL = "personnel"
     FILE_LOCATION = "file_location"
     DUPLICATE_DETECTION = "duplicate_detection"
@@ -31,7 +32,7 @@ class QueryIntent(str, Enum):
 @dataclass
 class RouterResult:
     """Result of query classification."""
-    intents: List[QueryIntent] = field(default_factory=lambda: [QueryIntent.DOCUMENT_QA])
+    intents: List[QueryIntent] = field(default_factory=lambda: [QueryIntent.PROJECT_SEARCH])
     confidence_scores: Dict[QueryIntent, float] = field(default_factory=dict)
     extracted_entities: List[str] = field(default_factory=list)
 
@@ -41,6 +42,10 @@ class RouterResult:
 
     # Intent-specific extraction
     drive_mention: Optional[str] = None
+
+    @property
+    def has_project_search(self) -> bool:
+        return QueryIntent.PROJECT_SEARCH in self.intents
 
     @property
     def has_personnel(self) -> bool:
@@ -71,6 +76,11 @@ PERSONNEL_KEYWORDS: List[str] = [
     "how many hours", "hours logged", "hours spent", "time spent",
     "billable hours", "total hours",
     "project manager", "project team",
+    # Project/assignment experience queries
+    "projects of", "projects this", "went on", "involved in",
+    "experience with", "experience on", "history of projects",
+    "recent projects", "past projects", "previous projects",
+    "last projects", "latest projects", "assignments",
     # Word-level
     "team", "staff", "people", "employees", "personnel",
     "engineer", "engineers", "manager", "pm",
@@ -120,6 +130,18 @@ DUPLICATE_DETECTION_PATTERNS: List[re.Pattern] = [
 BROAD_QUERY_KEYWORDS: List[str] = [
     "summary", "overview", "purpose", "about",
     "describe", "explain", "what was",
+]
+
+PROJECT_SEARCH_KEYWORDS: List[str] = [
+    # Phrase-level
+    "find project", "find projects", "search project", "search projects",
+    "project called", "project named", "project for",
+    "projects in", "projects from", "projects by",
+    "which project", "what project", "any projects",
+    "environmental project", "water project", "survey project",
+    "projects for client", "projects with",
+    # Word-level (lower weight)
+    "department", "scope",
 ]
 
 
@@ -175,11 +197,12 @@ def classify_query(query: str) -> RouterResult:
     if any(term in query_lower for term in BROAD_QUERY_KEYWORDS):
         result.is_broad_query = True
 
-    # --- DOCUMENT_QA confidence ---
-    if len(result.intents) == 1:
-        result.confidence_scores[QueryIntent.DOCUMENT_QA] = 1.0
+    # --- PROJECT_SEARCH confidence ---
+    project_score = _score_keywords(query_lower, PROJECT_SEARCH_KEYWORDS)
+    if project_score > 0:
+        result.confidence_scores[QueryIntent.PROJECT_SEARCH] = min(project_score + 0.5, 1.0)
     else:
-        result.confidence_scores[QueryIntent.DOCUMENT_QA] = 0.7
+        result.confidence_scores[QueryIntent.PROJECT_SEARCH] = 0.7
 
     # --- Entity extraction ---
     result.extracted_entities = _extract_entities(query)

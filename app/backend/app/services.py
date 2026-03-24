@@ -19,6 +19,7 @@ from .core.llm_client import LLMClient
 from .core.reranker import Reranker
 from .core.query_expander import QueryExpander
 from .core.directory_index import DirectoryIndex
+from .core.metadata_indexer import MetadataIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ _embedder = None
 _reranker = None
 _query_expander = None
 _directory_index = None
+_metadata_indexer = None
 
 
 def get_llm_client() -> LLMClient:
@@ -89,4 +91,16 @@ def get_directory_index() -> Optional[DirectoryIndex]:
         _directory_index.initialize()
         logger.info("Initialized DirectoryIndex singleton")
     return _directory_index
+
+
+def get_metadata_indexer() -> MetadataIndexer:
+    """Get metadata indexer singleton."""
+    global _metadata_indexer
+    if _metadata_indexer is None:
+        _metadata_indexer = MetadataIndexer(
+            chroma_db_path=settings.chroma_db_path,
+            metadata_index_path=settings.metadata_index_path_resolved,
+        )
+        logger.info("Initialized shared MetadataIndexer singleton")
+    return _metadata_indexer
 

@@ -91,6 +91,22 @@ async def startup_event():
     init_project_resolver()
     logger.info("Initialized Unified Project Resolver")
 
+    # Auto-index project metadata into ChromaDB
+    metadata_path = settings.metadata_index_path_resolved
+    if metadata_path.exists():
+        from .services import get_metadata_indexer, get_embedder
+        metadata_indexer = get_metadata_indexer()
+        if metadata_indexer.needs_reindex():
+            embedder = get_embedder()
+            result = metadata_indexer.index_metadata(embedder)
+            logger.info(f"Metadata auto-index: {result}")
+        else:
+            logger.info(
+                f"Metadata index up-to-date ({metadata_indexer.collection.count()} projects)"
+            )
+    else:
+        logger.warning(f"Metadata index not found at {metadata_path}, skipping auto-index")
+
     # Log directory index configuration status
     if settings.network_drives_config:
         logger.info(f"Network drives configured: {len(settings.network_drives_config)} drives")

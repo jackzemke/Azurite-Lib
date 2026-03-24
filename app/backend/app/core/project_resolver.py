@@ -107,7 +107,8 @@ class UnifiedProjectResolver:
             return project["folder_name"]
         
         # Try to resolve via mapper (project_key -> file_id -> folder)
-        file_id = self.mapper.get_file_id(identifier)
+        # Uses parent-chain resolution: child prjKey -> parent prjKey -> prjID
+        file_id = self.mapper.resolve_child_to_file_id(identifier)
         if file_id:
             project = self._fs_scanner.get_project_by_id(file_id)
             if project:
@@ -289,17 +290,23 @@ class UnifiedProjectResolver:
             return None
         
         # Try each file_id extracted from the folder name
+        p2e = self.ajera.data.get("project_to_employees", {}) if self.ajera.data else {}
         for file_id in fs_project.get("file_ids", []):
-            # Use mapper: file_id -> project_key
+            # Use mapper: file_id -> project_key (this is a parent key)
             project_key = self.mapper.get_project_key(file_id)
             if project_key:
-                # Verify it exists in Ajera
-                if self.ajera.data and project_key in self.ajera.data.get("project_to_employees", {}):
+                # Check if parent key itself is in Ajera
+                if project_key in p2e:
                     return project_key
-        
+                # Parent not in Ajera (time entries are on children) —
+                # find a child that has time entries
+                for child_key in self.mapper.get_children_keys(project_key):
+                    if child_key in p2e:
+                        return child_key
+
         # Fallback: Check if any file_id IS the project_key directly
         for file_id in fs_project.get("file_ids", []):
-            if self.ajera.data and file_id in self.ajera.data.get("project_to_employees", {}):
+            if file_id in p2e:
                 return file_id
         
         return None

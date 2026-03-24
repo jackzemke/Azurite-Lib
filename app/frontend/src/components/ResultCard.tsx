@@ -12,6 +12,8 @@ interface QueryResponse {
   confidence: string
   elapsed_ms: number
   stub_mode: boolean
+  personnel_data?: Record<string, unknown> | null
+  file_location?: { status?: string } | null
 }
 
 interface Props {
@@ -19,9 +21,17 @@ interface Props {
 }
 
 export default function ResultCard({ result }: Props) {
+  const sourceLabel = result.personnel_data
+    ? (result.citations.length > 0 ? 'Ajera + Indexed Docs' : 'Ajera')
+    : result.file_location?.status === 'found'
+      ? 'Directory Index'
+      : result.citations.length > 0
+        ? 'Indexed Docs'
+        : undefined
+
   const handleCitationClick = (citation: Citation) => {
     // Open document in new tab
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    const API_URL = import.meta.env.VITE_API_URL ?? ''
     const documentUrl = `${API_URL}/api/v1/projects/${citation.project_id}/documents/${encodeURIComponent(citation.file_path)}`
     
     console.log('Opening document:', documentUrl)
@@ -41,6 +51,20 @@ export default function ResultCard({ result }: Props) {
         flexWrap: 'wrap',
         marginBottom: '0.5rem'
       }}>
+        {sourceLabel && (
+          <span style={{
+            padding: '0.375rem 0.75rem',
+            background: '#eef2ff',
+            color: '#4338ca',
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            borderRadius: '999px',
+            border: '1px solid #a5b4fc',
+            letterSpacing: '0.2px'
+          }}>
+            {sourceLabel}
+          </span>
+        )}
         <span className={`confidence confidence-${result.confidence}`}>
           {result.confidence} confidence
         </span>
